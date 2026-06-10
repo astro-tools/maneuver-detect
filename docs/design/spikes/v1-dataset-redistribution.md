@@ -61,12 +61,30 @@ release January 2026). Its data policy states:
 > publicly available under an open data license (**CC0-1.0**)" — "free of charge in partnership with
 > commercial cloud providers."
 
-CC0-1.0 is a public-domain dedication: **freely redistributable by anyone**. This is the clean,
-authoritative open source the project should converge on. Caveat to verify (see Open items): the
-public TraCSS pages do not yet pin down **historical depth** (years of back-elements needed for
-training) or the **API / access terms** — those live in the full "TraCSS Data and Information Policy
-and User Agreement" PDF and the API docs. TraCSS today is oriented to go-forward screening; multi-year
-*history* may still come from Space-Track.
+CC0-1.0 is a public-domain dedication: **freely redistributable by anyone**, and the **public elements
+of the TraCSS Cat are openly queryable and downloadable** — structured JSON, via the TraCSS website and
+a machine-to-machine API, and the catalogue publishes **OMM (Orbit Mean-Element Messages,
+TraCSS-Spec-004)**, i.e. exactly the mean elements this project consumes. Owner/operator *registration*
+(open since May 2026) is for receiving services, not for reading the public catalogue.
+
+**But TraCSS is a current / go-forward catalogue, not a deep historical archive.** The FAQ confirms
+Space-Track "will not be turned off" and runs "in parallel", and the multi-year back-element archive
+(Space-Track's `gp_history` — 138M+ elsets) is **not** something TraCSS provides today. So TraCSS is
+the clean open source for **current / go-forward** mean elements — and the path to migrate toward — but
+the **multi-year history that training needs still comes from Space-Track**, which is exactly what the
+reconstruction recipe is for. (Residual: confirm public catalogue *reads* need no registration/rate
+gating — verified during the data-layer work against the TraCSS-Spec docs / a direct OSC query.)
+
+### 4b. A redistribution-clean (but stale) historical source: the McDowell archive
+
+Jonathan McDowell's *Historical TLE Orbital Elements* archive (planet4589.org) is notable for being
+**explicitly redistribution-clean**: "All the TLE data on this site originating from US government
+sources was obtained from other public sources, or else from the GSFC OIG site **under agreements that
+did not restrict redistribution of the data**" (Russian Vympel data excluded per their restrictions).
+The catch: it was last meaningfully updated ~April 2022, "does not contain recent element sets", and
+covers catalogue ranges up to ~52200 — so it is a **directly-redistributable but stale and incomplete**
+historical slice, useful for seeding older-epoch coverage, not a substitute for the live catalogue. No
+explicit licence is stated (worth confirming before relying on it).
 
 ### 5. Precedent
 
@@ -83,7 +101,7 @@ and the licensing is left ambiguous (a gap we should not copy).
 |---|---|
 | **(a) Labels + pinned reconstruction recipe** — users re-fetch from their own account and re-derive locally; we ship no raw catalogue data | **Recommended core.** Unambiguously compliant: we never transfer Space-Track data or its analysis. Each user operates under their own Space-Track agreement. |
 | **(b) Derived non-reconstructable features** as a *compliance escape* for Space-Track-sourced data | **Rejected as an escape.** The User Agreement covers "the analysis of data", so features derived from Space-Track data are still restricted. (Derived features remain fine when their *source* is openly licensed — see (c)/TraCSS.) |
-| **(c) Directly ship data sourced from an open licence** (TraCSS CC0-1.0; operator-published ephemerides) | **Recommended opportunistic layer.** Whatever is sourced under CC0/open terms can be shipped directly, shrinking the user's reconstruction burden over time. Bounded today by TraCSS historical coverage (to verify). |
+| **(c) Directly ship data sourced from an open licence** (TraCSS CC0-1.0; the McDowell archive; operator-published ephemerides) | **Recommended opportunistic layer.** Whatever is sourced under CC0/open terms ships directly. Bounded today: TraCSS CC0 is current/go-forward (not deep history); the McDowell archive is redistribution-clean but pre-2022 and incomplete — so the directly-shippable *historical* layer is currently thin, and multi-year history comes via the recipe. |
 
 ## Recommendation
 
@@ -94,12 +112,16 @@ and the licensing is left ambiguous (a gap we should not copy).
    - a **pinned reconstruction recipe** — the fetch code, the exact NORAD-ID catalogue, per-object
      date ranges and query parameters, and a **per-series content-hash manifest** (e.g. SHA-256 over
      the canonical mean-element series) so a reconstruction can be *verified* bit-for-bit;
-   - **derived / processed artifacts only where their source is openly licensed** (TraCSS CC0 or
-     operator-published data) — splits, features, and any directly-shippable element series.
+   - **directly-shippable data only where its source is openly licensed** — current/go-forward mean
+     elements from **TraCSS (CC0-1.0, OMM)**, the **redistribution-clean pre-2022 McDowell archive**
+     (caveated: stale, incomplete), and operator-published ephemerides — plus splits and features
+     derived from those open sources.
 2. **Do not redistribute** raw Space-Track TLEs, or features/analysis derived from Space-Track data.
    Users reconstruct locally from their own Space-Track account (or from CelesTrak / TraCSS).
-3. **Migrate the directly-shipped layer to TraCSS (CC0)** as its coverage matures, so progressively
-   more of the dataset is a plain download rather than a reconstruction.
+3. **Grow the directly-shipped (download, no-reconstruction) layer as open coverage matures.** TraCSS
+   CC0 covers current/go-forward epochs today; as its historical depth grows, progressively more of the
+   dataset becomes a plain CC0 download rather than a Space-Track reconstruction. The multi-year
+   *history* training needs comes from Space-Track via the recipe until then.
 
 This makes the dataset reproducible and citable *without* a redistribution-rights blocker, and lets the
 open (CC0) fraction grow over time. It is also why the benchmark's **splits, matching rule, and
@@ -152,10 +174,12 @@ credentials and is validated when the data layer lands.
 
 ## Open items
 
-- **Verify TraCSS historical depth + access** (the full data-policy PDF and API): how far back the
-  CC0 catalogue reaches and whether registration/rate terms apply. Determines how much of the dataset
-  can be a direct CC0 download vs. reconstruction. *(Carry into the data-layer work; revisit at the
-  design freeze.)*
+- **TraCSS historical depth + access — verified (this spike).** The public TraCSS Cat is openly
+  queryable/downloadable (CC0-1.0, JSON + machine-to-machine API, publishing OMM), but it is a
+  **current / go-forward** catalogue, **not** a deep historical archive — Space-Track's `gp_history`
+  (138M+ elsets) remains the multi-year source, fetched via the recipe. Residual to confirm during
+  data-layer work: that public catalogue *reads* need no registration/rate gating (per the TraCSS-Spec
+  docs / a direct OSC query), and the McDowell archive's licence status for its pre-2022 slice.
 - **Confirm the dataset licence against the V2 label-source licences** before finalising D9.
 - Ratify D2 / D9 at the design freeze.
 
@@ -167,7 +191,13 @@ credentials and is validated when the data layer lands.
 - CelesTrak system notices / redistribution authorization — <https://celestrak.org/NORAD/elements/notice.php>;
   GP data — <https://celestrak.org/NORAD/documentation/gp-data-formats.php>.
 - TraCSS Data & Information Policy (CC0-1.0) — Office of Space Commerce,
-  <https://space.commerce.gov/traffic-coordination-system-for-space-tracss/tracss-user-agreement-data-policy/>.
+  <https://space.commerce.gov/traffic-coordination-system-for-space-tracss/tracss-user-agreement-data-policy/>;
+  FAQ (Space-Track runs "in parallel", not turned off) —
+  <https://space.commerce.gov/traffic-coordination-system-for-space-tracss/tracss-frequently-asked-questions/>;
+  OMM catalogue format — TraCSS-Spec-004,
+  <https://space.commerce.gov/wp-content/uploads/2026/01/TraCSS-Spec-004-v1.2_OMM.pdf>.
+- Historical TLE archive (redistribution-clean, pre-2022) — J. McDowell, Jonathan's Space Pages,
+  <https://planet4589.org/space/ele.html>.
 - 17 U.S.C. §105 — no copyright in U.S. Government works.
 - Precedent: "SpaceTrack-TimeSeries" — <https://arxiv.org/abs/2506.13034> (Figshare data + GitHub
   reconstruction code).
