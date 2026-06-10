@@ -19,6 +19,11 @@ def test_public_surface_is_exposed() -> None:
     assert callable(maneuver_detect.detect)
     assert hasattr(maneuver_detect, "datasets")
     assert callable(maneuver_detect.datasets.tle_history)
+    assert callable(maneuver_detect.available_models)
+    # The canonical schema types and the detector base class are part of the public surface.
+    assert maneuver_detect.Maneuver is not None
+    assert maneuver_detect.ManeuverType is not None
+    assert maneuver_detect.Detector is not None
 
 
 @pytest.mark.smoke
