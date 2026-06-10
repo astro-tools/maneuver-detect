@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      # Ubuntu + Windows × 3 Python minors. The modelling stack (torch / lightning) ships
+      # CPU wheels for both; GPU training runs out of CI.
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install project
+        run: uv sync --all-groups
+
+      - name: Run pytest
+        run: uv run pytest --cov --cov-report=term-missing
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --all-groups
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --all-groups
+      - run: uv run mypy
+
+  # Smoke-check that `pip install maneuver-detect` (no extras, no dev group) imports cleanly
+  # and that the optional [foundation] stack is genuinely optional — it must not be pulled
+  # into the default install path.
+  minimal-install:
+    name: minimal install smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install .
+      - run: python -c "import maneuver_detect; print(maneuver_detect.__version__)"
+      - name: Assert the [foundation] stack is absent
+        run: |
+          python - <<'PY'
+          import importlib.util
+          for mod in ("chronos", "timesfm"):
+              assert importlib.util.find_spec(mod) is None, f"{mod} leaked into the base install"
+          print("foundation stack absent from base install")
+          PY
+
+  # CPU-only model-loading smoke: the modelling stack imports on a CPU runner. Checkpoint
+  # loading is exercised here once checkpoints ship.
+  model-smoke:
+    name: model-loading smoke (CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --all-groups
+      - run: uv run python -c "import maneuver_detect, torch, lightning; print('torch', torch.__version__)"
+
+  # Scorer-determinism + dataset-reconstruction checks. Wired as the `benchmark` marker; the
+  # real fixtures grow with the dataset and benchmark layers.
+  benchmark-stub:
+    name: scorer determinism + dataset reconstruction
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --all-groups
+      - run: uv run pytest -m benchmark
