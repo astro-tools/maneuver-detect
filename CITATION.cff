@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use maneuver-detect in academic work, please cite it using the metadata below."
+title: maneuver-detect
+abstract: >-
+  maneuver-detect is a permissively-licensed Python library, a curated open dataset, and a
+  frozen benchmark for detecting orbital maneuvers from public TLE history. It assembles a
+  labelled mean-element dataset from public catalog data and operator maneuver announcements,
+  ships a classical reference detector with a vis-viva / Gauss-variational Δv inversion, and
+  defines a leak-free, reproducible benchmark protocol so a new detection method can be measured
+  against prior work on the same frozen splits.
+type: software
+authors:
+  - given-names: Dimitrije
+    family-names: Jankovic
+version: 0.1.0
+license: MIT
+repository-code: "https://github.com/astro-tools/maneuver-detect"
+url: "https://github.com/astro-tools/maneuver-detect"
+keywords:
+  - astrodynamics
+  - orbital-mechanics
+  - maneuver-detection
+  - space-situational-awareness
+  - tle
+  - benchmark
+  - machine-learning

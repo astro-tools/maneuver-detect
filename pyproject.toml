@@ -1,0 +1,143 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "maneuver-detect"
+version = "0.1.0"
+description = "Open dataset, models, and benchmark for detecting orbital maneuvers from public TLE history."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Dimitrije Jankovic" }]
+keywords = [
+  "astrodynamics",
+  "orbital-mechanics",
+  "maneuver-detection",
+  "space-situational-awareness",
+  "ssa",
+  "tle",
+  "satellite",
+  "benchmark",
+  "machine-learning",
+  "time-series",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Astronomy",
+  "Topic :: Scientific/Engineering :: Physics",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Typing :: Typed",
+]
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "sgp4>=2.20",
+  "astropy>=6.0",
+  "torch>=2.2",
+  "lightning>=2.2",
+  "huggingface_hub>=0.24",
+  "datasets>=2.19",
+]
+
+# The time-series foundation-model stack is an optional extra so the base install stays
+# light and fully permissive. It is wired here but not exercised by the v0.1 surface.
+[project.optional-dependencies]
+foundation = [
+  "chronos-forecasting>=1.4",
+  "timesfm>=1.2",
+]
+
+[project.scripts]
+maneuver-detect = "maneuver_detect.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/astro-tools/maneuver-detect"
+Repository = "https://github.com/astro-tools/maneuver-detect"
+Issues = "https://github.com/astro-tools/maneuver-detect/issues"
+Documentation = "https://astro-tools.github.io/maneuver-detect/"
+Changelog = "https://github.com/astro-tools/maneuver-detect/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "pandas-stubs",
+]
+docs = [
+  "mkdocs-material>=9.5",
+  "mkdocstrings[python]>=0.26",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/maneuver_detect"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+# The prerequisite-spike proof scripts are frozen analysis artifacts, not maintained source.
+extend-exclude = ["docs/design/spikes"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",   # pycodestyle
+  "F",        # pyflakes
+  "I",        # isort
+  "B",        # flake8-bugbear
+  "UP",       # pyupgrade
+  "SIM",      # flake8-simplify
+  "RUF",      # ruff-specific
+]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src/maneuver_detect", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["sgp4", "sgp4.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["astropy", "astropy.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["chronos", "chronos.*", "timesfm", "timesfm.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+  "smoke: lightweight import/availability checks runnable without data or model weights",
+  "benchmark: scorer-determinism and dataset-reconstruction checks (fixtures grow with the benchmark layer)",
+]
+
+[tool.coverage.run]
+source = ["src/maneuver_detect"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "@overload",
+  "^\\s*\\.\\.\\.$",
+]

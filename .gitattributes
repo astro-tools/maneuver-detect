@@ -1,0 +1,6 @@
+# Golden / reference fixtures under tests/data are compared byte-for-byte by the dataset
+# reconstruction and scorer-determinism tests. Git's line-ending normalisation (autocrlf on
+# Windows checks out LF as CRLF) would otherwise rewrite them and break those byte-exact
+# assertions, so treat the fixtures as binary — checked out verbatim, identical on every
+# platform.
+tests/data/** -text

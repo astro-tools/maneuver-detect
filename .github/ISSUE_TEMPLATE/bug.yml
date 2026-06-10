@@ -1,0 +1,59 @@
+name: Bug
+description: Report a defect in maneuver-detect.
+title: "<short summary>"
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: Observed behavior. Include error messages and tracebacks verbatim.
+    validations:
+      required: true
+  - type: textarea
+    id: what_expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: >-
+        Smallest snippet that triggers the bug — the Python (or CLI) call, the NORAD id or
+        TLE input, and the model/detector used.
+      render: python
+    validations:
+      required: true
+  - type: input
+    id: maneuver_detect_version
+    attributes:
+      label: maneuver-detect version
+      placeholder: "e.g. 0.1.0, or git sha"
+    validations:
+      required: true
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+      placeholder: "e.g. 3.12.3"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - Windows
+        - macOS
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant output — tracebacks, warnings, pytest output.
+      render: shell
