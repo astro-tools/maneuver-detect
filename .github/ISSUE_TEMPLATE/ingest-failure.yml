@@ -1,0 +1,55 @@
+name: Source or format does not ingest
+description: A TLE input or a maneuver-label source fails to parse, ingest, or label as expected.
+title: "<source or format> does not ingest"
+labels: ["type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Use this for a public catalog input (TLE / OMM) or a maneuver-label source that
+        maneuver-detect fails to read, ingest, or map onto the elset history. For proposing a
+        brand-new label source, use the Feature template instead.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of input
+      options:
+        - TLE / catalog history (CelesTrak / Space-Track / TraCSS)
+        - Maneuver-label source (operator announcement / log)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Source or format
+      description: Which source or format, and where it comes from.
+      placeholder: "e.g. DORIS/IDS maneuver file, GPS NANU, a CelesTrak TLE export"
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: >-
+        How it failed — a parse error, a silently dropped record, a maneuver that did not map
+        onto an elset gap, a wrong type or Δv. Include error messages and tracebacks verbatim.
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Minimal sample
+      description: >-
+        The smallest input that reproduces it. Confirm the sample is licensed so it can be
+        attached; if it cannot be redistributed, describe how to obtain it instead.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: maneuver_detect_version
+    attributes:
+      label: maneuver-detect version
+      placeholder: "e.g. 0.1.0, or git sha"
+    validations:
+      required: true
