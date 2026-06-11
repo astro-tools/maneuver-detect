@@ -140,6 +140,60 @@ def test_verify_passes_and_flags_tampering() -> None:
     assert verify(_RECIPE, _FakeFetcher(_by_norad()), tampered, _labels()) != []
 
 
+def test_labels_outside_entry_window_are_dropped() -> None:
+    # Entry 100's window opens after its LEO label epoch (2024-01-04 06:00 UTC), so that label falls
+    # outside and must not reach the reconstructed label set, the labelling, or the coverage report.
+    # Entry 200 keeps its full-history window and its label.
+    recipe = Recipe(
+        dataset_version="test-0",
+        entries=(
+            RecipeEntry(
+                100,
+                OrbitClass.LEO,
+                "Test-LEO",
+                "fake",
+                SOURCE_DORIS_IDS,
+                "tst",
+                start="2024-01-05T00:00:00Z",
+            ),
+            RecipeEntry(200, OrbitClass.MEO, "Test-MEO", "fake", SOURCE_GPS_NANU, "SVN99"),
+        ),
+    )
+    dataset = reconstruct(recipe, _FakeFetcher(_by_norad()), _labels())
+    assert dataset.by_norad()[100].intervals == []  # dropped before labelling
+    assert [label.norad_id for label in dataset.labels] == [200]
+    assert dataset.coverage().per_class[OrbitClass.LEO].n_events == 0
+    assert dataset.coverage().per_class[OrbitClass.MEO].n_events == 1
+
+
+def test_labels_inside_entry_window_match_the_unwindowed_run() -> None:
+    # A window that brackets the label epoch keeps exactly the same labels and matched intervals as
+    # the full-history recipe: scoping only ever drops labels that fall outside the window, so the
+    # detector-facing intervals (and the benchmark) are unaffected when nothing is dropped.
+    windowed = Recipe(
+        dataset_version="test-0",
+        entries=(
+            RecipeEntry(
+                100,
+                OrbitClass.LEO,
+                "Test-LEO",
+                "fake",
+                SOURCE_DORIS_IDS,
+                "tst",
+                start="2024-01-01T00:00:00Z",
+                end="2024-01-06T23:59:59Z",
+            ),
+            RecipeEntry(200, OrbitClass.MEO, "Test-MEO", "fake", SOURCE_GPS_NANU, "SVN99"),
+        ),
+    )
+    windowed_ds = reconstruct(windowed, _FakeFetcher(_by_norad()), _labels())
+    full_ds = reconstruct(_RECIPE, _FakeFetcher(_by_norad()), _labels())
+    assert windowed_ds.labels == full_ds.labels
+    assert [iv.epoch for iv in windowed_ds.by_norad()[100].intervals] == [
+        iv.epoch for iv in full_ds.by_norad()[100].intervals
+    ]
+
+
 def test_build_writes_and_round_trips(tmp_path: Path) -> None:
     report = build_dataset(_RECIPE, _FakeFetcher(_by_norad()), _labels(), tmp_path)
     assert report.n_objects == 2

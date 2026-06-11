@@ -35,8 +35,10 @@ class RecipeEntry:
             :data:`~maneuver_detect.labels.record.SOURCE_GPS_NANU`).
         label_ref: The source-native key the label fetch uses — the DORIS satellite code (e.g.
             ``"ja2"`` for ``ja2man.txt``) or the GPS ``"SVN62"``.
-        start: ISO-8601 start of the epoch window to fetch (``None`` for the full history).
-        end: ISO-8601 end of the epoch window (``None`` for open-ended).
+        start: ISO-8601 start of the epoch window — scopes both the series fetch and the object's
+            maneuver labels (``None`` for the full history).
+        end: ISO-8601 end of the epoch window, likewise scoping the series and the labels (``None``
+            for open-ended).
     """
 
     norad_id: int
