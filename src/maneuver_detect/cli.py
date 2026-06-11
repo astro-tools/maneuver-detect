@@ -100,6 +100,8 @@ def _run_detect(target: str, model: str) -> int:
 
 def _run_dataset_build(out_dir: str, nanu_start_year: int, nanu_end_year: int | None) -> int:
     """Reconstruct the v0.1 dataset and write the recipe / labels / manifest artifacts."""
+    import logging
+    import sys
     from datetime import datetime, timezone
 
     import httpx
@@ -110,10 +112,23 @@ def _run_dataset_build(out_dir: str, nanu_start_year: int, nanu_end_year: int | 
     from maneuver_detect.datasets.catalogue import v01_recipe
     from maneuver_detect.labels.record import OrbitClass
 
+    # A build is a long run (a NANU-archive crawl plus a per-object Space-Track fetch), so surface
+    # the per-year / per-object progress logs live on stderr (the handler flushes each record).
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    progress = logging.getLogger("maneuver_detect")
+    progress.addHandler(handler)
+    progress.setLevel(logging.INFO)
+
     end_year = nanu_end_year if nanu_end_year is not None else datetime.now(tz=timezone.utc).year
     recipe = v01_recipe()
     headers = {"User-Agent": f"maneuver-detect/{__version__}"}
-    print(f"fetching labels (NANU archive {nanu_start_year}-{end_year}) and series...")
+    progress.info(
+        "fetching labels (NANU archive %d-%d), then %d series...",
+        nanu_start_year,
+        end_year,
+        len(recipe.entries),
+    )
     with httpx.Client(timeout=60.0, headers=headers, follow_redirects=True) as client:
         labels = fetch_labels(
             recipe,

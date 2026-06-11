@@ -15,6 +15,7 @@ the recipe-first distribution model trustworthy (D2/D8).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -34,6 +35,8 @@ from maneuver_detect.labels.labeller import (
 from maneuver_detect.labels.record import ManeuverLabel, OrbitClass
 
 __all__ = ["LabelledDataset", "ObjectDataset", "reconstruct", "verify"]
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -105,13 +108,23 @@ def reconstruct(
     labels_by_norad = labels_by_norad or {}
     objects: list[ObjectDataset] = []
     all_labels: list[ManeuverLabel] = []
-    for entry in recipe.entries:
+    total = len(recipe.entries)
+    for index, entry in enumerate(recipe.entries, start=1):
         result = fetcher.fetch(entry.norad_id, start=entry.start, end=entry.end)
         cleaned = clean_elsets(list(result.elsets))
         series = assemble(cleaned)
         obj_labels = list(labels_by_norad.get(entry.norad_id, []))
         all_labels.extend(obj_labels)
         labelling = label_series(series, obj_labels)
+        _logger.info(
+            "[%d/%d] series NORAD %s (%s): %d elsets, %d labels",
+            index,
+            total,
+            entry.norad_id,
+            entry.object_name,
+            len(cleaned),
+            len(obj_labels),
+        )
         objects.append(
             ObjectDataset(
                 norad_id=entry.norad_id,

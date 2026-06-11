@@ -15,6 +15,7 @@ parses them with the label layer.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sys
 from collections.abc import Mapping, Sequence
@@ -44,6 +45,8 @@ __all__ = [
     "labels_to_json",
     "write_artifacts",
 ]
+
+_logger = logging.getLogger(__name__)
 
 _IDS_MAN_URL = "https://ids-doris.org/documents/BC/satellites/{ref}man.txt"
 # The GPS NANU archive — one file per notice under a per-year index, the source of the FCSTDV
@@ -162,7 +165,9 @@ def fetch_nanu_labels(
         if index.status_code == 404:
             continue
         index.raise_for_status()
-        for name in sorted(set(re.findall(r"nanu\.\d{7}\.txt", index.text))):
+        names = sorted(set(re.findall(r"nanu\.\d{7}\.txt", index.text)))
+        before = len(labels)
+        for name in names:
             if rate_limiter is not None:
                 rate_limiter.acquire()
             response = client.get(_NANU_ARCHIVE_FILE.format(year=year, name=name))
@@ -174,6 +179,9 @@ def fetch_nanu_labels(
                 for label in parse_nanus(response.text, svn_to_norad=svn_to_norad)
                 if label.norad_id is not None
             )
+        _logger.info(
+            "NANU archive %d: %d notices, %d FCSTDV labels", year, len(names), len(labels) - before
+        )
     return labels
 
 
@@ -208,9 +216,12 @@ def fetch_labels(
             )
             continue
         response.raise_for_status()
+        kept = 0
         for label in parse_doris(response.text):
             if label.norad_id is not None:
                 by_norad.setdefault(label.norad_id, []).append(label)
+                kept += 1
+        _logger.info("DORIS %sman.txt: %d labels", entry.label_ref, kept)
 
     for label in fetch_nanu_labels(
         client,
