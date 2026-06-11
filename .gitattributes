@@ -4,3 +4,7 @@
 # assertions, so treat the fixtures as binary — checked out verbatim, identical on every
 # platform.
 tests/data/** -text
+
+# The frozen dataset artifacts (recipe / labels / manifest / splits) are likewise reproduced and
+# compared byte-for-byte against a fresh build, so they must check out verbatim on every platform.
+dataset/** -text
