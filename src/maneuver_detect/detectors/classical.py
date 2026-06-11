@@ -2,40 +2,42 @@
 
 A rule-based maneuver detector built directly on the physics: it reads a per-object mean-element
 series and emits the canonical maneuver schema (:mod:`maneuver_detect.schema`), with a Δv estimate
-and a maneuver type from the :mod:`maneuver_detect.physics` Gauss inversion. The pipeline, per
-object and per detection element, is four steps:
+and a maneuver type from the :mod:`maneuver_detect.physics` Gauss inversion. The pipeline is:
 
-1. **Smooth (Holt's linear method).** A level-plus-trend exponential smoother, generalised to the
-   irregular TLE cadence (the trend is per-day and the one-step forecast is ``level + trend·Δt``).
-   The trend term absorbs the *secular* drift of a mean element — the J2 nodal regression of the
-   node, the slow drag decay of the semi-major axis — so steady natural drift leaves no standing
-   residual. (The seasonal third component of full Holt-Winters is deliberately omitted: the
-   irregular, gap-ridden TLE cadence makes a fixed seasonal index ill-posed, and the bounded
-   periodic variability of SRP / luni-solar perturbations is handled by the robust noise scale
-   below rather than modelled explicitly.)
+1. **Regularise and smooth.** The series is first collapsed to one representative elset per UTC day
+   (real catalogues fit several per day in bursts, and each extra inter-elset gap is another chance
+   to fire). Each element is then smoothed with a time-aware Holt level-plus-trend model (the trend
+   is per-day, the one-step forecast is ``level + trend·Δt``); the trend absorbs the *secular* drift
+   — the J2 nodal regression, the slow drag decay of the semi-major axis — so steady drift leaves no
+   standing residual. (Full Holt-Winters' seasonal term is omitted: the irregular cadence makes a
+   fixed seasonal index ill-posed, and the bounded periodic SRP / luni-solar variability is handled
+   by the robust noise scale below.)
 
-2. **Score the residual jump (rule-based threshold).** The scatter of the post-smoothing residual,
-   measured robustly as ``1.4826·MAD`` so a maneuver does not inflate its own threshold, sets a
-   per-object, per-element noise scale. Across each inter-elset gap the *detrended* step in the
-   element is measured with the two-sided local-linear fit of
-   :func:`maneuver_detect.physics.local_step` — which removes the local secular trend on both sides
-   of the gap — and a gap is a candidate when
-   that step, on any element, exceeds ``threshold`` noise scales. This is what suppresses the
-   natural-variability confounds (drag, SRP, luni-solar) and TLE noise: a smooth drift produces no
-   step, and Gaussian scatter clears the threshold only with negligible probability.
+2. **Score the residual jump (rule-based threshold).** Across each inter-elset gap the *detrended*
+   step in each element is measured with the two-sided local-linear fit of
+   :func:`maneuver_detect.physics.local_step`, and scored against the robust ``1.4826·MAD`` spread
+   of that step statistic over all gaps — a self-calibrated noise scale immune to the maneuver
+   jumps and to the fit's extrapolation leverage. A gap is a candidate when the step on a *detection
+   channel* exceeds ``threshold`` scales. The detection channels are the two well-observed elements,
+   the **semi-major axis** (in-track) and **inclination** (cross-track) — keeping detection
+   multi-element (not mean-motion alone, D4) while leaving out the node and eccentricity, which are
+   an order of magnitude noisier and, measured against the operator labels, fire almost only false
+   alarms. Candidates are reduced to the strongest gap of each footprint (non-maximum suppression),
+   then transients — a single bad elset or same-epoch re-fit, whose step reverses on the adjacent
+   gap — are dropped.
 
-3. **Invert (the physics).** The detrended steps in ``(a, e, i, Ω)`` and the smoothed pre-gap
-   reference orbit go to :func:`maneuver_detect.physics.invert`, which returns the RSW Δv
-   decomposition, the total ``|Δv|``, and the dominant-component maneuver **type** (D5). The
-   detector is multi-element by construction (D4): the in-track channel is the semi-major axis, the
-   cross-track channel the inclination and node, the radial channel the eccentricity — mean motion
-   alone would catch only a fraction of real maneuvers.
+3. **Invert (the physics).** The detrended steps in *all four* elements ``(a, e, i, Ω)`` and the
+   smoothed pre-gap reference orbit go to :func:`maneuver_detect.physics.invert`, which returns the
+   RSW Δv decomposition, the total ``|Δv|``, and the dominant-component maneuver **type** (D5). So
+   the node and eccentricity still inform the Δv and type even though they do not trigger.
 
-4. **Gate and emit.** The Δv is reported only above the per-object detectability floor (D5: nothing
-   below it, and a radial-dominated maneuver is low-confidence); the detection confidence is a
-   monotone, calibrated function of the residual-jump significance, so the benchmark can threshold
-   it to set an operating point. Each surviving gap becomes one row of the canonical schema, with
-   the bounding elset epochs as provenance.
+4. **Gate and emit.** The Δv is reported only above the **per-type** detectability floor — the node
+   and inclination are good only to arc-seconds while the semi-major axis is good to metres, so a
+   cross-track burn must be far larger than an in-track one to be seen, and a single floor would
+   mis-classify one or the other (D4/D5; a radial-dominated maneuver is additionally
+   low-confidence). The confidence is a monotone function of the residual-jump significance, so the
+   benchmark can threshold it to set an operating point. Each surviving gap becomes one row of the
+   canonical schema, with the bounding elset epochs as provenance.
 
 The detector registers under the name ``"classical"`` and is the default that
 :func:`maneuver_detect.detect` dispatches to.
@@ -44,6 +46,7 @@ The detector registers under the name ``"classical"`` and is the default that
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
@@ -59,7 +62,7 @@ from maneuver_detect.physics import (
     invert,
     local_step,
 )
-from maneuver_detect.schema import COLUMNS, Maneuver, empty_frame, to_frame
+from maneuver_detect.schema import COLUMNS, Maneuver, ManeuverType, empty_frame, to_frame
 
 __all__ = ["ClassicalDetector"]
 
@@ -105,8 +108,9 @@ class ClassicalDetector(Detector):
     so the detector is correct on a single-object series and on a concatenated multi-object one.
 
     The tunables are constructor arguments with literature-reasonable defaults; the detectability
-    floor that gates the Δv estimate is calibrated per object from its orbit class and residual
-    noise. The default no-argument construction is what the registry instantiates.
+    floor that gates the Δv estimate is calibrated per object and maneuver type from the element
+    noise (:meth:`floor_for`). The default no-argument construction is what the registry
+    instantiates.
     """
 
     name = "classical"
@@ -119,6 +123,8 @@ class ClassicalDetector(Detector):
         smoothing_level: float = 0.5,
         smoothing_trend: float = 0.1,
         radial_confidence_factor: float = 0.6,
+        regularize_daily: bool = True,
+        persistence_revert_fraction: float = 0.5,
     ) -> None:
         """Configure the detector.
 
@@ -132,6 +138,15 @@ class ClassicalDetector(Detector):
             smoothing_trend: Holt trend smoothing factor (beta) in ``[0, 1]``.
             radial_confidence_factor: Multiplier applied to the confidence of a radial-dominated
                 detection (D5: radial maneuvers are weakly observable and reported low-confidence).
+            regularize_daily: Collapse the series to one representative elset per UTC day before
+                detection. Real catalogues fit several elsets per day in bursts; left raw, each
+                extra gap is another chance to fire, so the dense cadence inflates the false-alarm
+                rate. The D4 matching tolerance (the bracketing gap plus or minus one, about two
+                days) absorbs the small epoch shift the binning introduces.
+            persistence_revert_fraction: A candidate is rejected as a transient (a single bad elset
+                or a same-epoch re-fit, not a maneuver) when its dominant-element step reverses on
+                an adjacent gap with at least this fraction of its magnitude — a real maneuver is a
+                sustained step, not a spike that returns.
         """
         if window < 2:
             raise ValueError(f"window must be at least 2, got {window}")
@@ -140,18 +155,18 @@ class ClassicalDetector(Detector):
         for factor_name, factor in (
             ("smoothing_level", smoothing_level),
             ("smoothing_trend", smoothing_trend),
+            ("radial_confidence_factor", radial_confidence_factor),
+            ("persistence_revert_fraction", persistence_revert_fraction),
         ):
             if not 0.0 <= factor <= 1.0:
                 raise ValueError(f"{factor_name} must be in [0, 1], got {factor}")
-        if not 0.0 <= radial_confidence_factor <= 1.0:
-            raise ValueError(
-                f"radial_confidence_factor must be in [0, 1], got {radial_confidence_factor}"
-            )
         self.window = window
         self.threshold = threshold
         self.smoothing_level = smoothing_level
         self.smoothing_trend = smoothing_trend
         self.radial_confidence_factor = radial_confidence_factor
+        self.regularize_daily = regularize_daily
+        self.persistence_revert_fraction = persistence_revert_fraction
 
     def detect(self, history: pd.DataFrame) -> pd.DataFrame:
         """Detect maneuvers in ``history`` and return the canonical maneuver DataFrame.
@@ -177,92 +192,174 @@ class ClassicalDetector(Detector):
         result: pd.DataFrame = ordered_frame[list(COLUMNS)]
         return result
 
+    def floor_for(self, history: pd.DataFrame) -> dict[ManeuverType, float]:
+        """The per-type Δv detectability floor (m/s) for a single-object ``history``.
+
+        The Δv below which a maneuver of each type cannot be told from this object's TLE noise — the
+        data-derived, TLE-quality-dependent floor D4 calls for, bounded below by the nominal
+        per-class floor. The benchmark uses the floor for a label's type to decide whether it is in
+        the above-floor population scored for recall, and the detector uses the floor for a
+        detection's type to gate the reported Δv (D5). It is computed on the same regularised series
+        the detector sees, so the two agree. Falls back to the nominal class floor when the series
+        is too short to calibrate.
+        """
+        model = self._prepare(history)
+        if model is None:
+            if history.empty:
+                raise ValueError("cannot compute a floor for an empty history")
+            median_a = float(np.median(history["semi_major_axis"].to_numpy(dtype=float)))
+            nominal = detectability_floor_ms(_orbit_class_of(median_a))
+            return dict.fromkeys(ManeuverType, nominal)
+        return self._object_floors(model)
+
     def _detect_object(self, frame: pd.DataFrame) -> list[Maneuver]:
         """Detect maneuvers in one object's epoch-sorted mean-element series."""
-        n = len(frame)
-        # A gap is scored only with `window` elsets on each side; below that no step can be fit.
-        if n < 2 * self.window + 1:
+        model = self._prepare(frame)
+        if model is None:
             return []
+        floors = self._object_floors(model)
 
-        epochs = list(frame["epoch"])
-        norad_id = int(frame["norad_id"].iloc[0])
-        t_days = _epochs_to_days(epochs).tolist()
-
-        a_km = frame["semi_major_axis"].to_numpy(dtype=float)
-        ecc = frame["eccentricity"].to_numpy(dtype=float)
-        inc_deg = _unwrap_deg(frame["inclination"].to_numpy(dtype=float))
-        raan_deg = _unwrap_deg(frame["raan"].to_numpy(dtype=float))
-        argp_deg = _unwrap_deg(frame["arg_perigee"].to_numpy(dtype=float))
-
-        # Smooth each element with the time-aware Holt level/trend model; the smoothed level at the
-        # last pre-gap sample is the reference orbit the inversion linearises about.
-        level_a = _holt_levels(t_days, a_km, self.smoothing_level, self.smoothing_trend)
-        level_e = _holt_levels(t_days, ecc, self.smoothing_level, self.smoothing_trend)
-        level_inc = _holt_levels(t_days, inc_deg, self.smoothing_level, self.smoothing_trend)
-        level_argp = _holt_levels(t_days, argp_deg, self.smoothing_level, self.smoothing_trend)
-
-        gaps = range(self.window, n - self.window)
-        # The detrended step in each element across every scorable gap (the residual jump).
-        step_a = _step_series(t_days, a_km, gaps, self.window)
-        step_e = _step_series(t_days, ecc, gaps, self.window)
-        step_inc = _step_series(t_days, inc_deg, gaps, self.window)
-        step_raan = _step_series(t_days, raan_deg, gaps, self.window)
-
-        # Self-calibrated noise scale: the robust spread of the step statistic itself over all gaps,
-        # so the threshold is in true standard deviations of that statistic — immune to both the
-        # maneuver jumps (MAD ignores the outliers) and the extrapolation leverage of the two-sided
-        # fit. This is what holds the false-alarm rate down on drift/SRP/luni-solar variability.
-        scale_a = _robust_scale(step_a)
-        scale_e = _robust_scale(step_e)
-        scale_inc = _robust_scale(step_inc)
-        scale_raan = _robust_scale(step_raan)
-
-        floor_ms = self._floor_ms(a_km)
+        # Trigger detection on the two well-observed channels only: the semi-major axis (in-track)
+        # and the inclination (cross-track). The eccentricity and node are an order of magnitude
+        # noisier — measured against the operator labels they fire almost only false alarms — so
+        # they do not trigger a detection, though they still inform the Δv and type through the
+        # full-element inversion below. This keeps detection multi-element (in-track and
+        # cross-track, not mean-motion alone, D4) without paying the node/eccentricity false alarms.
+        channels = (
+            (model.step_a, model.scale_a),
+            (model.step_inc, model.scale_inc),
+        )
 
         candidates: list[_Candidate] = []
-        for offset, gap in enumerate(gaps):
-            significance = max(
-                abs(step_a[offset]) / scale_a,
-                abs(step_e[offset]) / scale_e,
-                abs(step_inc[offset]) / scale_inc,
-                abs(step_raan[offset]) / scale_raan,
-            )
+        for offset, gap in enumerate(model.gaps):
+            dominant_step, significance = _dominant_channel(channels, offset)
             if significance < self.threshold:
                 continue
             candidates.append(
                 _Candidate(
                     gap=gap,
                     significance=significance,
+                    offset=offset,
+                    dominant=dominant_step,
                     step=ElementStep(
-                        delta_a_km=step_a[offset],
-                        delta_eccentricity=step_e[offset],
-                        delta_inclination_rad=step_inc[offset] * _DEG_TO_RAD,
-                        delta_raan_rad=step_raan[offset] * _DEG_TO_RAD,
+                        delta_a_km=model.step_a[offset],
+                        delta_eccentricity=model.step_e[offset],
+                        delta_inclination_rad=model.step_inc[offset] * _DEG_TO_RAD,
+                        delta_raan_rad=model.step_raan[offset] * _DEG_TO_RAD,
                     ),
                 )
             )
 
         maneuvers: list[Maneuver] = []
         for candidate in _suppress_neighbours(candidates, self.window):
+            # Reject a transient (single bad elset / same-epoch re-fit) only after suppression has
+            # kept the strongest gap of the footprint: a real maneuver is a sustained step, while a
+            # spike's strongest gap has its opposite-sign partner immediately beside it.
+            if _is_transient(
+                candidate.dominant, candidate.offset, self.persistence_revert_fraction
+            ):
+                continue
             gap = candidate.gap
-            orbit = _reference_orbit(level_a, level_e, level_inc, level_argp, gap)
+            orbit = _reference_orbit(
+                model.level_a, model.level_e, model.level_inc, model.level_argp, gap
+            )
             inversion = invert(candidate.step, orbit)
             maneuvers.append(
                 Maneuver(
-                    epoch=_gap_midpoint(epochs[gap - 1], epochs[gap]),
+                    epoch=_gap_midpoint(model.epochs[gap - 1], model.epochs[gap]),
                     confidence=self._confidence(candidate.significance, inversion),
                     type=inversion.maneuver_type,
-                    delta_v_estimate=inversion.delta_v_estimate(floor_ms),
-                    norad_id=norad_id,
-                    elset_epoch_before=epochs[gap - 1],
-                    elset_epoch_after=epochs[gap],
+                    delta_v_estimate=inversion.delta_v_estimate(floors[inversion.maneuver_type]),
+                    norad_id=model.norad_id,
+                    elset_epoch_before=model.epochs[gap - 1],
+                    elset_epoch_after=model.epochs[gap],
                 )
             )
         return maneuvers
 
-    def _floor_ms(self, a_km: FloatArray) -> float:
-        """The per-object Δv detectability floor (m/s) from the orbit class (D4/D5)."""
-        return detectability_floor_ms(_orbit_class_of(float(np.median(a_km))))
+    def _prepare(self, frame: pd.DataFrame) -> _SeriesModel | None:
+        """Regularise, smooth, and score every gap of one object's series — the shared core.
+
+        Returns ``None`` when the (regularised) series is too short to fit a step on each side of a
+        gap. Both :meth:`_detect_object` and :meth:`floor_for` build on this so the floor is
+        calibrated against exactly the series the detector runs on.
+        """
+        if self.regularize_daily:
+            frame = _regularize_daily(frame)
+        n = len(frame)
+        if n < 2 * self.window + 1:
+            return None
+
+        epochs = list(frame["epoch"])
+        t_days = _epochs_to_days(epochs).tolist()
+        a_km = frame["semi_major_axis"].to_numpy(dtype=float)
+        ecc = frame["eccentricity"].to_numpy(dtype=float)
+        inc_deg = _unwrap_deg(frame["inclination"].to_numpy(dtype=float))
+        raan_deg = _unwrap_deg(frame["raan"].to_numpy(dtype=float))
+        argp_deg = _unwrap_deg(frame["arg_perigee"].to_numpy(dtype=float))
+
+        gaps = range(self.window, n - self.window)
+        # The detrended step in each element across every scorable gap (the residual jump). The
+        # self-calibrated scale is the robust spread of that step statistic over all gaps, so the
+        # threshold is in true standard deviations of the statistic — immune to the maneuver jumps
+        # (MAD ignores the outliers) and to the extrapolation leverage of the two-sided fit.
+        step_a = _step_series(t_days, a_km, gaps, self.window)
+        step_e = _step_series(t_days, ecc, gaps, self.window)
+        step_inc = _step_series(t_days, inc_deg, gaps, self.window)
+        step_raan = _step_series(t_days, raan_deg, gaps, self.window)
+
+        return _SeriesModel(
+            epochs=epochs,
+            norad_id=int(frame["norad_id"].iloc[0]),
+            a_km=a_km,
+            ecc=ecc,
+            inc_deg=inc_deg,
+            argp_deg=argp_deg,
+            level_a=_holt_levels(t_days, a_km, self.smoothing_level, self.smoothing_trend),
+            level_e=_holt_levels(t_days, ecc, self.smoothing_level, self.smoothing_trend),
+            level_inc=_holt_levels(t_days, inc_deg, self.smoothing_level, self.smoothing_trend),
+            level_argp=_holt_levels(t_days, argp_deg, self.smoothing_level, self.smoothing_trend),
+            gaps=gaps,
+            step_a=step_a,
+            step_e=step_e,
+            step_inc=step_inc,
+            step_raan=step_raan,
+            scale_a=_robust_scale(step_a),
+            scale_e=_robust_scale(step_e),
+            scale_inc=_robust_scale(step_inc),
+            scale_raan=_robust_scale(step_raan),
+        )
+
+    def _object_floors(self, model: _SeriesModel) -> dict[ManeuverType, float]:
+        """The per-type Δv floor (m/s): the smallest detectable maneuver of each type.
+
+        A maneuver is seen only through the element it moves, and those elements differ enormously
+        in TLE precision — the semi-major axis is good to metres while the node and inclination are
+        good to arc-seconds — so an in-track burn of a few mm/s and a cross-track burn of a few
+        hundred mm/s can be equally (un)detectable. A single floor would therefore mis-classify one
+        type or the other, so the floor is computed per type: the Δv that, applied as that type's
+        burn, produces a ``threshold``-scale step in its element. Each is bounded below by the
+        nominal per-class floor (the SGP4 representation limit).
+        """
+        orbit = _median_orbit(model)
+        snr = self.threshold
+        nominal = detectability_floor_ms(_orbit_class_of(orbit.semi_major_axis_km))
+
+        in_track = invert(ElementStep(snr * model.scale_a, 0.0, 0.0, 0.0), orbit).delta_v_ms
+        # Cross-track shows in both inclination and node; the most sensitive of the two sets the
+        # floor (a burn at the right argument of latitude lands its signal in whichever is cleaner).
+        cross_inc = invert(
+            ElementStep(0.0, 0.0, snr * model.scale_inc * _DEG_TO_RAD, 0.0), orbit
+        ).delta_v_ms
+        cross_raan = invert(
+            ElementStep(0.0, 0.0, 0.0, snr * model.scale_raan * _DEG_TO_RAD), orbit
+        ).delta_v_ms
+        radial = invert(ElementStep(0.0, snr * model.scale_e, 0.0, 0.0), orbit).delta_v_ms
+        return {
+            ManeuverType.IN_TRACK: max(in_track, nominal),
+            ManeuverType.CROSS_TRACK: max(min(cross_inc, cross_raan), nominal),
+            ManeuverType.RADIAL: max(radial, nominal),
+        }
 
     def _confidence(self, significance: float, inversion: Inversion) -> float:
         """Map residual-jump significance to a calibrated confidence in ``[0, 1]``.
@@ -277,15 +374,125 @@ class ClassicalDetector(Detector):
         return float(min(1.0, max(0.0, base)))
 
 
+@dataclass(frozen=True)
+class _SeriesModel:
+    """One object's regularised, smoothed, gap-scored series — the shared detection state.
+
+    Built once by :meth:`ClassicalDetector._prepare` and consumed by both the detector and the
+    floor calibration: the unwrapped element arrays, their Holt-smoothed levels, the per-gap
+    detrended step series, and the self-calibrated noise scale of each.
+    """
+
+    epochs: list[pd.Timestamp]
+    norad_id: int
+    a_km: FloatArray
+    ecc: FloatArray
+    inc_deg: FloatArray
+    argp_deg: FloatArray
+    level_a: FloatArray
+    level_e: FloatArray
+    level_inc: FloatArray
+    level_argp: FloatArray
+    gaps: range
+    step_a: list[float]
+    step_e: list[float]
+    step_inc: list[float]
+    step_raan: list[float]
+    scale_a: float
+    scale_e: float
+    scale_inc: float
+    scale_raan: float
+
+
 class _Candidate:
-    """A scored candidate gap, before merging and inversion."""
+    """A scored candidate gap, before suppression, the transient check, and inversion."""
 
-    __slots__ = ("gap", "significance", "step")
+    __slots__ = ("dominant", "gap", "offset", "significance", "step")
 
-    def __init__(self, *, gap: int, significance: float, step: ElementStep) -> None:
+    def __init__(
+        self,
+        *,
+        gap: int,
+        significance: float,
+        offset: int,
+        dominant: list[float],
+        step: ElementStep,
+    ) -> None:
         self.gap = gap
         self.significance = significance
+        self.offset = offset  # index into the gap-aligned step series, for the transient check
+        self.dominant = dominant  # the dominant channel's step series
         self.step = step
+
+
+def _dominant_channel(
+    channels: tuple[tuple[list[float], float], ...], offset: int
+) -> tuple[list[float], float]:
+    """The most significant channel at ``offset`` — its step series and its significance.
+
+    Significance is ``|step| / scale``; the dominant channel decides whether the gap clears the
+    detection threshold and supplies the persistence (revert) check.
+    """
+    best_steps = channels[0][0]
+    best_significance = -1.0
+    for steps, scale in channels:
+        significance = abs(steps[offset]) / scale
+        if significance > best_significance:
+            best_significance = significance
+            best_steps = steps
+    return best_steps, best_significance
+
+
+def _is_transient(steps: list[float], offset: int, fraction: float) -> bool:
+    """Whether the step at ``offset`` reverses on an adjacent gap — a spike, not a maneuver.
+
+    A single bad elset (or a same-epoch re-fit) makes the series jump and then jump straight back,
+    so the strongest gap of its footprint has its opposite-sign partner on the very next gap. A
+    real maneuver shifts the level once and keeps it, leaving the neighbouring gaps the same sign.
+    Applied after suppression has reduced each footprint to its strongest gap, an adjacent-gap
+    check is enough: the candidate is a transient when a neighbouring gap holds an opposite-sign
+    step of at least ``fraction`` of its magnitude.
+    """
+    primary = steps[offset]
+    if primary == 0.0:
+        return False
+    for neighbour in (offset - 1, offset + 1):
+        if 0 <= neighbour < len(steps):
+            adjacent = steps[neighbour]
+            if adjacent * primary < 0.0 and abs(adjacent) >= fraction * abs(primary):
+                return True
+    return False
+
+
+def _regularize_daily(frame: pd.DataFrame) -> pd.DataFrame:
+    """Reduce a series to one representative elset per UTC day — the one nearest local noon.
+
+    Dense catalogues fit several elsets per day in bursts; each extra inter-elset gap is another
+    chance to fire, so the raw cadence inflates the false-alarm rate. Keeping the most central
+    elset of each day regularises the cadence to the roughly-daily grid the detector assumes, while
+    the D4 matching tolerance absorbs the sub-day epoch shift.
+    """
+    if len(frame) < 2:
+        return frame
+    indexed = frame.reset_index(drop=True)
+    epoch = indexed["epoch"]
+    day = epoch.dt.floor("D")
+    distance_from_noon = ((epoch - day).dt.total_seconds() / 86400.0 - 0.5).abs()
+    keep = distance_from_noon.groupby(day).idxmin()
+    reduced: pd.DataFrame = indexed.loc[sorted(keep)].reset_index(drop=True)
+    return reduced
+
+
+def _median_orbit(model: _SeriesModel) -> Orbit:
+    """The median orbit of the series — the reference the floor inversion linearises about."""
+    eccentricity = min(max(float(np.median(model.ecc)), 0.0), 0.999_999)
+    inclination = min(max(float(np.median(model.inc_deg)) * _DEG_TO_RAD, 0.0), math.pi)
+    return Orbit(
+        semi_major_axis_km=float(np.median(model.a_km)),
+        eccentricity=eccentricity,
+        inclination_rad=inclination,
+        arg_perigee_rad=float(np.median(model.argp_deg)) * _DEG_TO_RAD,
+    )
 
 
 def _suppress_neighbours(candidates: list[_Candidate], radius: int) -> list[_Candidate]:

@@ -408,6 +408,56 @@ def _exposure_of(frame: pd.DataFrame, orbit_class: OrbitClass) -> ObjectExposure
     )
 
 
+# --------------------------------------------------------------------------- per-type floor (D4)
+def test_floor_for_is_per_type_and_cross_track_is_least_sensitive() -> None:
+    floors = ClassicalDetector().floor_for(synthetic_series(norad_id=1, seed=0))
+    assert set(floors) == set(ManeuverType)
+    assert all(value > 0.0 for value in floors.values())
+    # The node and inclination are far less precise than the semi-major axis, so a cross-track
+    # maneuver must be larger than an in-track one to clear the same noise.
+    assert floors[ManeuverType.CROSS_TRACK] >= floors[ManeuverType.IN_TRACK]
+
+
+def test_floor_for_short_history_falls_back_to_one_nominal_floor() -> None:
+    floors = ClassicalDetector().floor_for(synthetic_series(norad_id=1, seed=0, n=6))
+    assert len(set(floors.values())) == 1  # the nominal class floor, the same for every type
+
+
+def test_floor_for_empty_history_raises() -> None:
+    with pytest.raises(ValueError):
+        ClassicalDetector().floor_for(synthetic_series(norad_id=1, seed=0).iloc[0:0])
+
+
+# --------------------------------------------------------------------------- cadence regularization
+def test_regularize_daily_keeps_one_elset_per_day() -> None:
+    from maneuver_detect.detectors.classical import _regularize_daily
+
+    # Four elsets per day over five days collapse to one per day.
+    reduced = _regularize_daily(synthetic_series(norad_id=1, seed=0, n=20, cadence_days=0.25))
+    assert len(reduced) == 5
+    assert reduced["epoch"].dt.floor("D").nunique() == 5
+
+
+def test_detects_burn_in_dense_subdaily_series() -> None:
+    # A burst-cadence series (four elsets per day) still yields a single detection at the burn.
+    frame = synthetic_series(
+        norad_id=1, seed=0, n=240, cadence_days=0.25, burns=(Burn(120, "in_track_ms", 2.0),)
+    )
+    out = ClassicalDetector().detect(frame)
+    assert len(out) == 1
+    assert out.iloc[0]["type"] == ManeuverType.IN_TRACK.value
+
+
+# --------------------------------------------------------------------------- persistence / outliers
+def test_single_point_spike_is_rejected() -> None:
+    # One bad elset that jumps and reverts the next sample is a transient, not a maneuver: even a
+    # large spike (well above threshold) is not emitted, where a sustained step of the same size is.
+    frame = synthetic_series(norad_id=1, seed=0)
+    semi_major = frame["semi_major_axis"].to_numpy(dtype=float).copy()
+    semi_major[60] += 0.3  # a 300 m single-sample spike in the semi-major axis
+    assert ClassicalDetector().detect(frame.assign(semi_major_axis=semi_major)).empty
+
+
 # --------------------------------------------------------------------------- constructor validation
 @pytest.mark.parametrize(
     "kwargs",
@@ -418,6 +468,8 @@ def _exposure_of(frame: pd.DataFrame, orbit_class: OrbitClass) -> ObjectExposure
         {"smoothing_level": 1.5},
         {"smoothing_trend": -0.1},
         {"radial_confidence_factor": 2.0},
+        {"persistence_revert_fraction": 1.5},
+        {"persistence_revert_fraction": -0.1},
     ],
 )
 def test_constructor_rejects_bad_parameters(kwargs: dict[str, Any]) -> None:
