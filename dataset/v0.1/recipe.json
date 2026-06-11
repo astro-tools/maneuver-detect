@@ -4,10 +4,40 @@
     {
       "catalogue_source": "spacetrack",
       "end": null,
+      "label_ref": "sp2",
+      "label_source": "DORIS-IDS",
+      "norad_id": 20436,
+      "object_name": "SPOT-2",
+      "orbit_class": "LEO",
+      "start": null
+    },
+    {
+      "catalogue_source": "spacetrack",
+      "end": null,
       "label_ref": "top",
       "label_source": "DORIS-IDS",
       "norad_id": 22076,
       "object_name": "TOPEX/Poseidon",
+      "orbit_class": "LEO",
+      "start": null
+    },
+    {
+      "catalogue_source": "spacetrack",
+      "end": null,
+      "label_ref": "sp3",
+      "label_source": "DORIS-IDS",
+      "norad_id": 22823,
+      "object_name": "SPOT-3",
+      "orbit_class": "LEO",
+      "start": null
+    },
+    {
+      "catalogue_source": "spacetrack",
+      "end": null,
+      "label_ref": "sp4",
+      "label_source": "DORIS-IDS",
+      "norad_id": 25260,
+      "object_name": "SPOT-4",
       "orbit_class": "LEO",
       "start": null
     },
@@ -38,6 +68,16 @@
       "label_source": "DORIS-IDS",
       "norad_id": 27386,
       "object_name": "Envisat",
+      "orbit_class": "LEO",
+      "start": null
+    },
+    {
+      "catalogue_source": "spacetrack",
+      "end": null,
+      "label_ref": "sp5",
+      "label_source": "DORIS-IDS",
+      "norad_id": 27421,
+      "object_name": "SPOT-5",
       "orbit_class": "LEO",
       "start": null
     },
@@ -194,7 +234,7 @@
     {
       "catalogue_source": "spacetrack",
       "end": null,
-      "label_ref": "sr1",
+      "label_ref": "srl",
       "label_source": "DORIS-IDS",
       "norad_id": 39086,
       "object_name": "SARAL",

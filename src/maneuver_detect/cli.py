@@ -24,7 +24,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     args = _build_parser().parse_args(argv)
     if args.command == "dataset":
-        return _run_dataset_build(out_dir=args.out)
+        return _run_dataset_build(
+            out_dir=args.out,
+            nanu_start_year=args.nanu_start_year,
+            nanu_end_year=args.nanu_end_year,
+        )
     return _run_detect(target=args.target, model=args.model)
 
 
@@ -75,6 +79,18 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="output directory for recipe.json, labels.json, and manifest.json",
     )
+    build_parser.add_argument(
+        "--nanu-start-year",
+        type=int,
+        default=2016,
+        help="first year of the CelesTrak NANU archive to crawl for GPS labels (default: 2016)",
+    )
+    build_parser.add_argument(
+        "--nanu-end-year",
+        type=int,
+        default=None,
+        help="last NANU archive year to crawl (default: the current year)",
+    )
     return parser
 
 
@@ -82,19 +98,30 @@ def _run_detect(target: str, model: str) -> int:
     raise NotImplementedError("The detector layer is not implemented yet.")
 
 
-def _run_dataset_build(out_dir: str) -> int:
+def _run_dataset_build(out_dir: str, nanu_start_year: int, nanu_end_year: int | None) -> int:
     """Reconstruct the v0.1 dataset and write the recipe / labels / manifest artifacts."""
+    from datetime import datetime, timezone
+
     import httpx
 
+    from maneuver_detect.data.ratelimit import RateLimiter
     from maneuver_detect.data.spacetrack import SpacetrackFetcher
     from maneuver_detect.datasets.build import build_dataset, fetch_labels
     from maneuver_detect.datasets.catalogue import v01_recipe
     from maneuver_detect.labels.record import OrbitClass
 
+    end_year = nanu_end_year if nanu_end_year is not None else datetime.now(tz=timezone.utc).year
     recipe = v01_recipe()
     headers = {"User-Agent": f"maneuver-detect/{__version__}"}
+    print(f"fetching labels (NANU archive {nanu_start_year}-{end_year}) and series...")
     with httpx.Client(timeout=60.0, headers=headers, follow_redirects=True) as client:
-        labels = fetch_labels(recipe, client)
+        labels = fetch_labels(
+            recipe,
+            client,
+            nanu_start_year=nanu_start_year,
+            nanu_end_year=end_year,
+            rate_limiter=RateLimiter(1.0),
+        )
         with SpacetrackFetcher() as fetcher:
             report = build_dataset(recipe, fetcher, labels, out_dir)
 

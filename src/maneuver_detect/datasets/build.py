@@ -15,6 +15,8 @@ parses them with the label layer.
 from __future__ import annotations
 
 import json
+import re
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -23,6 +25,7 @@ from pathlib import Path
 import httpx
 
 from maneuver_detect.data.base import Fetcher
+from maneuver_detect.data.ratelimit import RateLimiter
 from maneuver_detect.datasets.catalogue import gps_svn_to_norad
 from maneuver_detect.datasets.recipe import Recipe
 from maneuver_detect.datasets.reconstruct import LabelledDataset, reconstruct
@@ -36,13 +39,17 @@ __all__ = [
     "BuildReport",
     "build_dataset",
     "fetch_labels",
+    "fetch_nanu_labels",
     "labels_from_json",
     "labels_to_json",
     "write_artifacts",
 ]
 
 _IDS_MAN_URL = "https://ids-doris.org/documents/BC/satellites/{ref}man.txt"
-_NAVCEN_NANU_URL = "https://www.navcen.uscg.gov/sites/default/files/gps/nanu/current_nanu.nnu"
+# The GPS NANU archive — one file per notice under a per-year index, the source of the FCSTDV
+# (forecast delta-V = maneuver) history. The current_nanu.nnu file holds only the latest notice.
+_NANU_ARCHIVE_INDEX = "https://celestrak.org/GPS/NANU/{year}/"
+_NANU_ARCHIVE_FILE = "https://celestrak.org/GPS/NANU/{year}/{name}"
 
 
 def labels_to_json(labels: Sequence[ManeuverLabel]) -> str:
@@ -134,13 +141,56 @@ def build_dataset(
     return BuildReport(paths=paths, n_objects=len(dataset.objects), coverage=dataset.coverage())
 
 
-def fetch_labels(recipe: Recipe, client: httpx.Client) -> dict[int, list[ManeuverLabel]]:
+def fetch_nanu_labels(
+    client: httpx.Client,
+    *,
+    start_year: int,
+    end_year: int,
+    svn_to_norad: Mapping[str, int],
+    rate_limiter: RateLimiter | None = None,
+) -> list[ManeuverLabel]:
+    """Crawl the CelesTrak NANU archive over ``[start_year, end_year]`` for FCSTDV maneuver labels.
+
+    Each year's index lists one file per notice; every file is fetched and parsed, keeping only the
+    FCSTDV (maneuver) notices that resolve to a NORAD id. ``rate_limiter`` paces the per-file
+    fetches (the archive holds tens of files per year) — pass one for a polite crawl. A missing
+    year index (404) is skipped.
+    """
+    labels: list[ManeuverLabel] = []
+    for year in range(start_year, end_year + 1):
+        index = client.get(_NANU_ARCHIVE_INDEX.format(year=year))
+        if index.status_code == 404:
+            continue
+        index.raise_for_status()
+        for name in sorted(set(re.findall(r"nanu\.\d{7}\.txt", index.text))):
+            if rate_limiter is not None:
+                rate_limiter.acquire()
+            response = client.get(_NANU_ARCHIVE_FILE.format(year=year, name=name))
+            if response.status_code == 404:
+                continue
+            response.raise_for_status()
+            labels.extend(
+                label
+                for label in parse_nanus(response.text, svn_to_norad=svn_to_norad)
+                if label.norad_id is not None
+            )
+    return labels
+
+
+def fetch_labels(
+    recipe: Recipe,
+    client: httpx.Client,
+    *,
+    nanu_start_year: int,
+    nanu_end_year: int,
+    rate_limiter: RateLimiter | None = None,
+) -> dict[int, list[ManeuverLabel]]:
     """Download and parse the open maneuver-label files for ``recipe``, keyed by NORAD id.
 
-    DORIS/IDS ``man.txt`` files are fetched one per LEO entry; the GPS NANU notices are fetched once
-    and parsed with the full constellation crosswalk. Labels that do not resolve to a NORAD id are
-    dropped (they cannot attach to a series). Raises :class:`httpx.HTTPError` if a source is
-    unreachable, so a failed leg surfaces rather than silently shipping a partial dataset.
+    DORIS/IDS ``man.txt`` files are fetched one per LEO entry (a renamed/missing file is skipped
+    with a warning); the GPS NANU FCSTDV notices come from the CelesTrak archive over
+    ``[nanu_start_year, nanu_end_year]``, parsed with the full constellation crosswalk. Labels that
+    do not resolve to a NORAD id are dropped (they cannot attach to a series).
     """
     by_norad: dict[int, list[ManeuverLabel]] = {}
     seen_refs: set[str] = set()
@@ -149,14 +199,26 @@ def fetch_labels(recipe: Recipe, client: httpx.Client) -> dict[int, list[Maneuve
             continue
         seen_refs.add(entry.label_ref)
         response = client.get(_IDS_MAN_URL.format(ref=entry.label_ref))
+        if response.status_code == 404:
+            # The IDS server occasionally renames a man.txt file; skip a missing one with a loud
+            # warning rather than aborting the whole build (that object just gets no labels).
+            print(
+                f"warning: DORIS file '{entry.label_ref}man.txt' not found (404); skipping",
+                file=sys.stderr,
+            )
+            continue
         response.raise_for_status()
         for label in parse_doris(response.text):
             if label.norad_id is not None:
                 by_norad.setdefault(label.norad_id, []).append(label)
 
-    response = client.get(_NAVCEN_NANU_URL)
-    response.raise_for_status()
-    for label in parse_nanus(response.text, svn_to_norad=gps_svn_to_norad()):
+    for label in fetch_nanu_labels(
+        client,
+        start_year=nanu_start_year,
+        end_year=nanu_end_year,
+        svn_to_norad=gps_svn_to_norad(),
+        rate_limiter=rate_limiter,
+    ):
         if label.norad_id is not None:
             by_norad.setdefault(label.norad_id, []).append(label)
     return by_norad

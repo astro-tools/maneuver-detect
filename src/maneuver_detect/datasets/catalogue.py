@@ -2,9 +2,9 @@
 
 Two classes, matching the v0.1 label scope (D3):
 
-- **LEO** — the DORIS/IDS altimetry satellites that publish a ``man.txt`` maneuver file *and* have a
-  confident NORAD id (the Δv-labelled set). DORIS-tracked satellites without a maneuver file (the
-  SPOTs) carry no labels and are excluded.
+- **LEO** — the DORIS/IDS satellites that publish a ``man.txt`` maneuver file *and* have a confident
+  NORAD id: the altimetry missions (the Δv-labelled core) and the SPOT imaging satellites. A few
+  with published files but no crosswalk entry yet (HY-2C/2D, Sentinel-6B, SWOT) are left out.
 - **MEO** — the operational GPS constellation (``SVN / PRN / NORAD``), sourced and cross-checked
   against the CelesTrak GPS catalogue. This table doubles as the ``SVN → NORAD`` crosswalk the NANU
   label parser needs (it accepts an injectable crosswalk), so the dataset layer supplies the full
@@ -95,20 +95,24 @@ GPS_CONSTELLATION: tuple[GpsSatellite, ...] = (
     GpsSatellite(83, 13, 68791, "III"),
 )
 
-# DORIS/IDS altimetry satellites with a published man.txt maneuver file: (DORIS code, name, man.txt
-# basename prefix). The NORAD id comes from the shared DORIS crosswalk.
-_LEO_ALTIMETRY: tuple[tuple[str, str, str], ...] = (
+# DORIS/IDS satellites with a published man.txt maneuver file: (DORIS code, name, man.txt basename
+# prefix). The NORAD id comes from the shared DORIS crosswalk; the prefixes are the IDS filenames.
+_LEO_DORIS_SATS: tuple[tuple[str, str, str], ...] = (
     ("TOPEX", "TOPEX/Poseidon", "top"),
     ("JASO1", "Jason-1", "ja1"),
     ("JASO2", "Jason-2", "ja2"),
     ("JASO3", "Jason-3", "ja3"),
     ("ENVI1", "Envisat", "en1"),
     ("CRYO2", "CryoSat-2", "cs2"),
-    ("SARAL", "SARAL", "sr1"),
+    ("SARAL", "SARAL", "srl"),
     ("HY-2A", "HY-2A", "h2a"),
     ("SEN3A", "Sentinel-3A", "s3a"),
     ("SEN3B", "Sentinel-3B", "s3b"),
     ("SEN6A", "Sentinel-6A", "s6a"),
+    ("SPOT2", "SPOT-2", "sp2"),
+    ("SPOT3", "SPOT-3", "sp3"),
+    ("SPOT4", "SPOT-4", "sp4"),
+    ("SPOT5", "SPOT-5", "sp5"),
 )
 
 
@@ -132,7 +136,7 @@ def v01_recipe(dataset_version: str = DATASET_VERSION) -> Recipe:
             label_source=SOURCE_DORIS_IDS,
             label_ref=man_ref,
         )
-        for code, name, man_ref in _LEO_ALTIMETRY
+        for code, name, man_ref in _LEO_DORIS_SATS
     ]
     entries += [
         RecipeEntry(

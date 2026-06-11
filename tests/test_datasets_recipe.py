@@ -13,7 +13,7 @@ from maneuver_detect.labels.record import SOURCE_DORIS_IDS, SOURCE_GPS_NANU, Orb
 
 def test_per_class_counts_match_scope() -> None:
     counts = v01_recipe().per_class_counts()
-    assert counts[OrbitClass.LEO] == 11  # the DORIS altimetry set with man.txt files
+    assert counts[OrbitClass.LEO] == 15  # the DORIS sats with man.txt files (altimetry + SPOTs)
     assert counts[OrbitClass.MEO] == len(GPS_CONSTELLATION) == 32  # the GPS constellation
     assert counts[OrbitClass.GEO] == 0  # no public GEO label source (deferred)
 
