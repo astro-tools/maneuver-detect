@@ -335,3 +335,80 @@ def test_detect_bad_target_is_clean(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert rc == 1
     assert "neither an existing file nor a NORAD" in captured.err
+
+
+def test_dataset_build_command_dispatches_and_reports(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The whole `dataset build` execution path is driven offline: the networked label fetch, the
+    # Space-Track fetcher, and the reconstruction are replaced with fakes, so the CLI dispatch, the
+    # progress logging, and the report rendering are exercised without a network or credentials.
+    from maneuver_detect.datasets.build import BuildReport
+    from maneuver_detect.labels.labeller import ClassCoverage, CoverageReport
+    from maneuver_detect.labels.record import OrbitClass
+
+    captured: dict[str, object] = {}
+
+    def fake_fetch_labels(
+        recipe: object,
+        client: object,
+        *,
+        nanu_start_year: int,
+        nanu_end_year: int,
+        rate_limiter: object = None,
+    ) -> dict[int, list[object]]:
+        captured["years"] = (nanu_start_year, nanu_end_year)
+        return {}
+
+    class FakeFetcher:
+        def __enter__(self) -> FakeFetcher:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+    def fake_build_dataset(
+        recipe: object, fetcher: object, labels: object, out_dir: str
+    ) -> BuildReport:
+        captured["out_dir"] = out_dir
+        per_class = {
+            orbit_class: ClassCoverage(
+                orbit_class=orbit_class,
+                n_events=0,
+                n_with_delta_v=0,
+                n_with_norad=0,
+                sources=(),
+            )
+            for orbit_class in OrbitClass
+        }
+        return BuildReport(
+            paths={name: tmp_path / f"{name}.json" for name in ("recipe", "labels", "manifest")},
+            n_objects=2,
+            coverage=CoverageReport(per_class=per_class, total=0),
+        )
+
+    monkeypatch.setattr("maneuver_detect.datasets.build.fetch_labels", fake_fetch_labels)
+    monkeypatch.setattr("maneuver_detect.datasets.build.build_dataset", fake_build_dataset)
+    monkeypatch.setattr("maneuver_detect.data.spacetrack.SpacetrackFetcher", FakeFetcher)
+
+    rc = cli.main(
+        [
+            "dataset",
+            "build",
+            "--out",
+            str(tmp_path),
+            "--nanu-start-year",
+            "2024",
+            "--nanu-end-year",
+            "2024",
+        ]
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "reconstructed 2 objects" in out
+    for name in ("recipe", "labels", "manifest"):
+        assert f"wrote {name}:" in out
+    assert captured["years"] == (2024, 2024)
+    assert captured["out_dir"] == str(tmp_path)

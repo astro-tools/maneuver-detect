@@ -232,3 +232,45 @@ def test_from_json_rejects_wrong_length_ratios() -> None:
     )
     with pytest.raises(ValueError):
         Split.from_json(bad)
+
+
+# --- name_of and the count summary (small, direct branches) ---
+
+
+def test_name_of_handles_unset_and_unassigned_ids() -> None:
+    split = Split(
+        dataset_version="test",
+        seed=0,
+        ratios=DEFAULT_RATIOS,
+        train=frozenset({1}),
+        val=frozenset({2}),
+        test=frozenset({3}),
+    )
+    assert split.name_of(1) is SplitName.TRAIN
+    assert split.name_of(None) is None  # an unset id
+    assert split.name_of(99999) is None  # an id in no split
+
+
+def test_split_counts_drops_unattachable_labels_and_summarises() -> None:
+    split = Split(
+        dataset_version="test",
+        seed=0,
+        ratios=DEFAULT_RATIOS,
+        train=frozenset({1}),
+        val=frozenset(),
+        test=frozenset(),
+    )
+    labels = [
+        _label(1, _T0, _T0 + timedelta(days=1)),  # counted in train / LEO
+        _label(None, _T0, _T0 + timedelta(days=1)),  # no norad id → dropped
+        _label(42, _T0, _T0 + timedelta(days=1)),  # in no split → dropped
+    ]
+    counts = split_counts(split, labels)
+    assert counts.n_objects(SplitName.TRAIN) == 1
+    assert counts.n_events(SplitName.TRAIN) == 1
+    assert counts.n_objects(SplitName.VAL) == 0
+    text = counts.summary()
+    # Every split and class appears with a stable shape.
+    for split_name in (SplitName.TRAIN, SplitName.VAL, SplitName.TEST):
+        assert f"{split_name.value}:" in text
+    assert OrbitClass.LEO.value in text

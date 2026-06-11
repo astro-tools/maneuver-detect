@@ -277,3 +277,23 @@ def test_headline_numbers_match_the_hand_count() -> None:
     assert geo.recall is None  # no GEO labels — recall is undefined, not zero
 
     assert report.headline()[OrbitClass.LEO] == pytest.approx(2 / 3)
+
+
+# --- the human-readable summary and the predictions-file validation contract ----------------------
+
+
+def test_summary_renders_every_class_with_na_for_undefined_recall() -> None:
+    report = score(_scenario_detections(), _scenario_labels(), _scenario_exposure())
+    text = report.summary()
+    assert "FA/sat-year" in text  # the header carries the operating point
+    for orbit_class in (OrbitClass.LEO, OrbitClass.MEO, OrbitClass.GEO):
+        assert orbit_class.value in text
+    assert "recall=0.667" in text  # LEO recall 2/3 to three decimals
+    assert "recall=n/a" in text  # GEO recall is undefined (no labels) — exercises _fmt(None)
+
+
+def test_read_predictions_rejects_a_record_missing_a_canonical_field() -> None:
+    # A leaderboard submission missing a required column is a hard error, not a silent drop.
+    bad = '[{"epoch": "2024-01-01T00:00:00+00:00", "confidence": 0.9}]'
+    with pytest.raises(ValueError, match="missing canonical fields"):
+        read_predictions(bad)
