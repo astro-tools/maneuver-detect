@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from maneuver_detect.data.base import Fetcher
+from maneuver_detect.data.base import Fetcher, in_range, normalise_range
 from maneuver_detect.data.clean import clean_elsets
 from maneuver_detect.data.history import assemble
 from maneuver_detect.datasets.manifest import Manifest, SeriesDigest, series_sha256
@@ -100,10 +100,13 @@ def reconstruct(
 ) -> LabelledDataset:
     """Reconstruct the labelled dataset for ``recipe`` using ``fetcher`` and per-object labels.
 
-    For each recipe entry: fetch the series in the entry's window, clean and assemble it, map the
-    object's labels (from ``labels_by_norad``, keyed by NORAD id; empty when omitted) onto its gaps,
-    and digest the cleaned series. The same recipe + same fetched input yields a byte-identical
-    manifest (the property :func:`verify` checks).
+    For each recipe entry: fetch the series in the entry's window, clean and assemble it, scope the
+    object's labels (from ``labels_by_norad``, keyed by NORAD id; empty when omitted) to that same
+    epoch window, map the kept labels onto its gaps, and digest the cleaned series. Scoping the
+    labels to the entry window keeps the committed label set a function of the whole recipe — two
+    recipes that differ only in an entry's window produce different label sets — rather than the
+    full announced history regardless of window. The same recipe + same fetched input yields a
+    byte-identical manifest (the property :func:`verify` checks).
     """
     labels_by_norad = labels_by_norad or {}
     objects: list[ObjectDataset] = []
@@ -113,7 +116,15 @@ def reconstruct(
         result = fetcher.fetch(entry.norad_id, start=entry.start, end=entry.end)
         cleaned = clean_elsets(list(result.elsets))
         series = assemble(cleaned)
-        obj_labels = list(labels_by_norad.get(entry.norad_id, []))
+        # Scope the object's labels to the same epoch window the series was fetched in (the same
+        # inclusive bounds, via the shared range helpers), so a label that falls outside the window
+        # never enters the committed label set or the coverage report.
+        lo, hi = normalise_range(entry.start, entry.end)
+        obj_labels = [
+            label
+            for label in labels_by_norad.get(entry.norad_id, [])
+            if in_range(label.epoch, lo, hi)
+        ]
         all_labels.extend(obj_labels)
         labelling = label_series(series, obj_labels)
         _logger.info(

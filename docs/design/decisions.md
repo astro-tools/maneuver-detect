@@ -35,7 +35,10 @@ redistribution-clean **pre-2022 McDowell archive**. **Never** redistribute raw S
 analysis* (the Space-Track User Agreement / 10 U.S.C. §2274(c)(2) reaches derived analysis; TLEs are
 public-domain U.S.-Government works but the ToU binds). Multi-year *training history* comes from
 Space-Track via the recipe; the CC0 layer grows as TraCSS coverage deepens. Reconstruction is
-byte-deterministic (proven in V1). *(Residual: confirm TraCSS public reads need no registration — at #10.)*
+byte-deterministic (proven in V1). A recipe entry's epoch window scopes **both** the series fetch and
+that object's maneuver labels, so the committed label set is a function of the whole recipe (a
+different window yields a different label set), not the full announced history.
+*(Residual: confirm TraCSS public reads need no registration — at #10.)*
 
 ## D3 — Label sources + v0.1 class scope (V2)
 
