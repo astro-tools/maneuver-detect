@@ -62,9 +62,11 @@ DORIS_SAT_TO_NORAD: dict[str, int] = {
     "SPOT5": 27421,
 }
 
-# Parameter-type code → the ManeuverType of each ΔV component, in the file's axis order. 006 and 007
-# both order radial / along-track / cross-track (JASON Q=radial, S=along-track, W=cross-track); 005
-# (SPOT T,R,L) orders cross-track / along-track / radial. Along-track is the schema's in-track.
+# Parameter-type code → the ManeuverType of each ΔV component, in the file's axis order. Per the
+# IDS man.readme, the axis labels cross-reference as Q = L = radial, W = T = cross-track, S = R =
+# along-track, so 006 (radial, along-track, cross-track) and 007 (Q, S, W) both order radial /
+# along-track / cross-track, while 005's T,R,L — Tangage (pitch), Roulis (roll), Lacet (yaw), NOT
+# "tangential" — orders cross-track / along-track / radial. Along-track is the schema's in-track.
 _AXIS_ORDER: dict[str, tuple[ManeuverType, ManeuverType, ManeuverType]] = {
     "005": (ManeuverType.CROSS_TRACK, ManeuverType.IN_TRACK, ManeuverType.RADIAL),
     "006": (ManeuverType.RADIAL, ManeuverType.IN_TRACK, ManeuverType.CROSS_TRACK),

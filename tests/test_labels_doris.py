@@ -147,6 +147,30 @@ def test_axis_mapping_to_maneuver_type() -> None:
     assert by_code["SPOT4"].maneuver_type is ManeuverType.RADIAL  # type: ignore[attr-defined]
 
 
+def test_spot_005_axis_order_matches_man_readme() -> None:
+    # Independently encode the IDS man.readme definition of parameter type 005 (SPOT), so the test
+    # grounds the convention rather than merely echoing the _AXIS_ORDER table. The readme gives the
+    # 005 ΔV order as T,R,L = Tangage/Roulis/Lacet (pitch/roll/yaw) and cross-references the labels
+    # as W = T = cross-track, S = R = along-track, Q = L = radial. So a burn dominant on the first /
+    # second / third component is a cross-track / in-track / radial maneuver. Note T is "Tangage"
+    # (the pitch axis, cross-track), NOT "tangential" (along-track).
+    def spot_005_type(dv: tuple[float, float, float]) -> ManeuverType | None:
+        text = _event(
+            "SPOT5",
+            (2024, 60, 0, 0),
+            (2024, 60, 1, 0),
+            param="005",
+            spot_type="MCC",
+            burns=(_burn(2024, 60, 0, 30, 0.0, dv),),
+        )
+        (label,) = parse_doris(text)
+        return label.maneuver_type
+
+    assert spot_005_type((3.0, 0.0, 0.0)) is ManeuverType.CROSS_TRACK  # T = Tangage (pitch)
+    assert spot_005_type((0.0, 3.0, 0.0)) is ManeuverType.IN_TRACK  # R = Roulis (roll)
+    assert spot_005_type((0.0, 0.0, 3.0)) is ManeuverType.RADIAL  # L = Lacet (yaw)
+
+
 def test_delta_v_magnitude_and_burn_aggregation() -> None:
     by_code = _by_code()
     assert by_code["JASO1"].delta_v == pytest.approx(2.5)  # type: ignore[attr-defined]
