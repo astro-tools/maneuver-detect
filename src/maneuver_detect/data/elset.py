@@ -198,6 +198,24 @@ def _tle_object_id(line1: str) -> str:
     return f"{_two_digit_year(int(launch_year))}-{launch_piece}"
 
 
+def _tle_checksum(line: str) -> int:
+    """The modulo-10 check digit of a TLE line's data columns (1-68).
+
+    Each decimal digit contributes its own value, a minus sign contributes 1, and every other
+    character (letters, spaces, the decimal point, the plus sign) contributes 0; the running total
+    taken mod 10 is the value the line carries in column 69. It is the TLE format's only built-in
+    integrity check, so verifying it is what catches a single-character corruption that
+    ``twoline2rv`` would otherwise accept silently.
+    """
+    total = 0
+    for char in line[: _TLE_LINE_LENGTH - 1]:
+        if "0" <= char <= "9":
+            total += ord(char) - ord("0")
+        elif char == "-":
+            total += 1
+    return total % 10
+
+
 def from_tle(line1: str, line2: str) -> Elset:
     """Parse one TLE line pair into an :class:`Elset`.
 
@@ -206,14 +224,22 @@ def from_tle(line1: str, line2: str) -> Elset:
     :meth:`sgp4.api.Satrec.twoline2rv` (which decodes the assumed-decimal eccentricity and the
     exponent-notation drag / rate fields) and converted to this record's degree / rev-per-day
     convention. Because ``twoline2rv`` is permissive, the structural guard is here: both lines must
-    be the standard width and carry their line number, and their catalogue numbers must agree, or a
-    :class:`ValueError` is raised — the same contract :func:`from_omm` offers for a bad OMM record.
+    be the standard width, carry their line number, pass the column-69 modulo-10 checksum, and agree
+    on their catalogue number, or a :class:`ValueError` is raised — the same contract
+    :func:`from_omm` offers for a bad OMM record.
     """
     first = line1.rstrip("\r\n")
     second = line2.rstrip("\r\n")
     for number, line in (("1", first), ("2", second)):
         if len(line) < _TLE_LINE_LENGTH or line[0] != number or line[1] != " ":
             raise ValueError(f"malformed TLE line {number}: {line!r}")
+        expected = _tle_checksum(line)
+        check_digit = line[_TLE_LINE_LENGTH - 1]
+        if not ("0" <= check_digit <= "9") or int(check_digit) != expected:
+            raise ValueError(
+                f"TLE line {number} checksum mismatch: column 69 is {check_digit!r}, "
+                f"expected {expected}"
+            )
     if first[2:7] != second[2:7]:
         raise ValueError(
             f"TLE line 1 / line 2 catalogue-number mismatch: {first[2:7]!r} vs {second[2:7]!r}"
