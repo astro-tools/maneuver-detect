@@ -40,6 +40,10 @@ theme:
 nav:
   - Home: index.md
   - Getting started: getting-started.md
+  - Dataset and labels: dataset.md
+  - Benchmark protocol: benchmark.md
+  - Output schema and Δv inversion: schema.md
+  - Design decisions: decisions.md
   - API reference: api.md
 
 plugins:
