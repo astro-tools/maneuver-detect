@@ -48,8 +48,10 @@ class Maneuver:
         epoch: Detection epoch (timezone-aware UTC).
         confidence: Calibrated detection confidence in ``[0, 1]``.
         type: The maneuver type (:class:`ManeuverType`).
-        delta_v_estimate: Estimated ``|Δv|`` in m/s, or ``None`` when not reported — below the
-            detectability floor, or for a radial-dominated maneuver (D5).
+        delta_v_estimate: Estimated ``|Δv|`` in m/s, or ``None`` when the estimate is below the
+            per-type detectability floor (D5). A radial-dominated maneuver is still reported when it
+            clears the floor, but its ``confidence`` is down-weighted (D5: radial is only weakly
+            observable from mean elements).
         norad_id: NORAD catalogue id of the object.
         elset_epoch_before: Epoch of the elset bounding the start of the inter-elset gap that
             brackets the maneuver (timezone-aware UTC).

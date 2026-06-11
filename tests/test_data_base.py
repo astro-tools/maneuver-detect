@@ -22,6 +22,14 @@ class TestParseBound:
     def test_space_separator_and_trailing_z(self) -> None:
         assert parse_bound("2024-01-01 12:00:00Z") == datetime(2024, 1, 1, 12, tzinfo=timezone.utc)
 
+    def test_date_only_bound_is_start_of_day_not_end(self) -> None:
+        # Bounds are exact instants: a date-only value is 00:00:00 UTC, so a date-only `end` is the
+        # start of that day and (with in_range inclusive) excludes everything later that day.
+        end = parse_bound("2024-06-30")
+        assert end == datetime(2024, 6, 30, 0, 0, 0, tzinfo=timezone.utc)
+        noon = datetime(2024, 6, 30, 12, tzinfo=timezone.utc)
+        assert in_range(noon, None, end) is False
+
     def test_naive_datetime_is_stamped_utc(self) -> None:
         assert parse_bound(datetime(2024, 1, 1, 12)) == datetime(
             2024, 1, 1, 12, tzinfo=timezone.utc
