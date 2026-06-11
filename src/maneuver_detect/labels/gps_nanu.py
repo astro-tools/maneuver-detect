@@ -34,7 +34,8 @@ GPS_SVN_TO_NORAD: dict[str, int] = {
 
 
 def _field(block: str, key: str) -> str | None:
-    match = re.search(rf"^{re.escape(key)}:\s*(.+)$", block, re.MULTILINE)
+    # NANU fields may be indented and carry a list-number prefix, e.g. "1.     NANU TYPE: FCSTDV".
+    match = re.search(rf"(?m)^\s*(?:\d+\.\s+)?{re.escape(key)}:\s*(.+)$", block)
     return match.group(1).strip() if match else None
 
 
@@ -95,7 +96,7 @@ def parse_nanus(text: str, *, svn_to_norad: Mapping[str, int] | None = None) -> 
     """
     crosswalk = GPS_SVN_TO_NORAD if svn_to_norad is None else svn_to_norad
     labels: list[ManeuverLabel] = []
-    for block in re.split(r"(?=^NANU TYPE:)", text, flags=re.MULTILINE):
+    for block in re.split(r"(?m)(?=^\s*(?:\d+\.\s+)?NANU TYPE:)", text):
         if not block.strip():
             continue
         label = _parse_block(block, crosswalk)

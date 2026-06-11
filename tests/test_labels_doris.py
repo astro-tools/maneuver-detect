@@ -175,6 +175,17 @@ def test_epochs_are_utc_and_tai_converted() -> None:
     assert 30.0 < offset < 45.0
 
 
+def test_zero_burn_event_is_window_only() -> None:
+    # Real man.txt files carry maneuvers announced with no burn detail (N=0); they are epoch-only,
+    # like a TOPEX window line — not an error.
+    line = _event("JASO2", (2019, 276, 18, 57), (2019, 276, 22, 43), param="007", burns=())
+    labels = parse_doris(line)
+    assert len(labels) == 1
+    assert labels[0].norad_id == 33105
+    assert labels[0].delta_v is None
+    assert labels[0].maneuver_type is None
+
+
 def test_truncated_burn_block_raises() -> None:
     # A header declaring one burn (param 007, N=1) but carrying no burn tokens.
     truncated = _event("JASO1", (2024, 10, 12, 0), (2024, 10, 13, 0)) + " 007 1"

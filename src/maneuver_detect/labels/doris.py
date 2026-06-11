@@ -127,6 +127,21 @@ def _summarise_burns(
     return epoch, magnitude, maneuver_type
 
 
+def _window_only_label(
+    norad_id: int | None, code: str, tokens: list[str], start: datetime, end: datetime
+) -> ManeuverLabel:
+    """An epoch-only label from the window alone — for TOPEX lines and burn-less (N=0) maneuvers."""
+    return ManeuverLabel(
+        norad_id=norad_id,
+        epoch=_midpoint(start, end),
+        window_start=start,
+        window_end=end,
+        source=SOURCE_DORIS_IDS,
+        source_ref=f"{code} {tokens[1]}/{tokens[2]}",
+        orbit_class=OrbitClass.LEO,
+    )
+
+
 def _parse_line(line: str) -> ManeuverLabel | None:
     """Parse one ``man.txt`` event line into a :class:`ManeuverLabel`, or ``None`` to skip it."""
     tokens = line.split()
@@ -146,15 +161,7 @@ def _parse_line(line: str) -> ManeuverLabel | None:
 
     # TOPEX (and any window-only line): no burn detail, so the label is epoch-only.
     if len(tokens) == 9:
-        return ManeuverLabel(
-            norad_id=norad_id,
-            epoch=_midpoint(window_start, window_end),
-            window_start=window_start,
-            window_end=window_end,
-            source=SOURCE_DORIS_IDS,
-            source_ref=f"{code} {tokens[1]}/{tokens[2]}",
-            orbit_class=OrbitClass.LEO,
-        )
+        return _window_only_label(norad_id, code, tokens, window_start, window_end)
 
     cursor = 9
     # SPOT lines carry a non-numeric maneuver-type token (MCC/MCO) before the parameter code.
@@ -177,6 +184,10 @@ def _parse_line(line: str) -> ManeuverLabel | None:
         delta_v = (float(block[6]), float(block[7]), float(block[8]))
         burns.append((epoch, delta_v))
         cursor += _BURN_TOKENS
+
+    # A maneuver announced with no burn detail (N=0) is an epoch-only event, like a TOPEX line.
+    if not burns:
+        return _window_only_label(norad_id, code, tokens, window_start, window_end)
 
     epoch, magnitude, maneuver_type = _summarise_burns(param_code, burns)
     return ManeuverLabel(
