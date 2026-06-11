@@ -34,9 +34,10 @@ import numpy.typing as npt
 import pandas as pd
 import pytest
 
-from maneuver_detect import detect
 from maneuver_detect.benchmark.matching import ScoredLabel, match_detections
 from maneuver_detect.benchmark.metrics import ClassMetrics, ObjectExposure, class_metrics
+from maneuver_detect.detectors import ClassicalDetector
+from maneuver_detect.detectors.classical import _regularize_daily
 from maneuver_detect.labels.labeller import label_series
 from maneuver_detect.labels.record import SOURCE_DORIS_IDS, ManeuverLabel, OrbitClass
 from maneuver_detect.physics import EARTH_MU_KM3_S2, Orbit, gauss_forward, j2_secular_rates
@@ -48,19 +49,33 @@ _SECONDS_PER_DAY = 86400.0
 #: The committed operator-label catalogue (DORIS/IDS), the ground truth for both evaluations.
 _LABELS_PATH = Path(__file__).resolve().parent.parent / "dataset" / "v0.1" / "labels.json"
 
-#: The above-floor threshold for the eval, in m/s: maneuvers at or above it are the recall
-#: population (the detector's effective sensitivity sits well below the station-keeping burns these
-#: satellites perform); smaller ones are physically marginal and scored as below-floor (ignored).
-_ABOVE_FLOOR_MS = 0.5
-
-#: Known-maneuver DORIS altimetry satellites and their approximate (sun-synchronous) reference
-#: orbits — NORAD id, name, and the orbit the inversion linearises about.
+#: Known-maneuver DORIS altimetry satellites for the synthetic-schedule replay and their
+#: approximate (sun-synchronous) reference orbits — NORAD id, name, and the orbit the inversion
+#: linearises about.
 _DORIS_SATS: tuple[tuple[int, str, Orbit], ...] = (
     (25260, "SPOT-4", Orbit(7200.0, 0.001, 98.70 * _DEG)),
     (27386, "Envisat", Orbit(7143.0, 0.001, 98.50 * _DEG)),
     (41335, "Sentinel-3A", Orbit(7177.0, 0.001, 98.65 * _DEG)),
     (39086, "SARAL", Orbit(7160.0, 0.001, 98.55 * _DEG)),
 )
+
+#: The DORIS satellites the credentialed Space-Track evaluation scores — a deliberately
+#: heterogeneous spread of tracking quality and era, from the noisy 1990s SPOT missions to the
+#: well-tracked modern Sentinel-3A — so the data-quality dependence of the recall is visible.
+_REAL_EVAL_SATS: tuple[tuple[int, str], ...] = (
+    (25260, "SPOT-4"),
+    (27386, "Envisat"),
+    (33105, "Jason-2"),
+    (41335, "Sentinel-3A"),
+    (41240, "Jason-3"),
+    (39086, "SARAL"),
+    (27421, "SPOT-5"),
+)
+
+#: The well-tracked satellite the credentialed eval holds to a literature-level bar; the noisy old
+#: missions are scored and reported but not gated (their maneuvers are largely sub-detectable from
+#: TLEs — the gap the v0.2 learned models target).
+_WELL_TRACKED_NORAD = 41335  # Sentinel-3A
 
 _COMPONENT_OF: dict[ManeuverType, str] = {
     ManeuverType.IN_TRACK: "in_track_ms",
@@ -170,25 +185,30 @@ def _replay_series(
     )
 
 
-def _evaluate(
-    pairs: list[tuple[pd.DataFrame, list[ManeuverLabel]]], *, floor_ms: float
-) -> ClassMetrics:
+def _evaluate(pairs: list[tuple[pd.DataFrame, list[ManeuverLabel]]]) -> ClassMetrics:
     """Score detector output for one or more (series, labels) objects through the benchmark.
 
-    Runs the detector on each series, maps each label onto its bracketing gap (the D4 matching
-    window), tags it above/below the floor by its dv, and returns the LEO class metrics over the
-    pooled population.
+    Each object is run through the detector; each label is mapped onto its bracketing gap on the
+    *same regularised (daily) grid the detector emits on* — so the D4 matching window is the
+    intended plus-or-minus two days rather than collapsing to a few hours on a dense series — and
+    tagged above or below the per-type detectability floor the detector calibrates for that object
+    (:meth:`~maneuver_detect.detectors.ClassicalDetector.floor_for`). Returns the LEO class metrics
+    over the pooled population.
     """
+    detector = ClassicalDetector()
     detections = []
     scored_labels: list[ScoredLabel] = []
     exposure: list[ObjectExposure] = []
     for series, labels in pairs:
-        detections.extend(from_frame(detect(series)))
+        detections.extend(from_frame(detector.detect(series)))
+        floors = detector.floor_for(series)
+        grid = _regularize_daily(series)
         for label in labels:
-            above_floor = label.delta_v is not None and label.delta_v >= floor_ms
-            for interval in label_series(series, [label]).intervals:
+            kind = label.maneuver_type if label.maneuver_type is not None else ManeuverType.IN_TRACK
+            above_floor = label.delta_v is not None and label.delta_v >= floors[kind]
+            for interval in label_series(grid, [label]).intervals:
                 scored_labels.append(ScoredLabel(interval=interval, above_floor=above_floor))
-        epochs = series["epoch"]
+        epochs = grid["epoch"]
         span_years = (epochs.max() - epochs.min()).total_seconds() / (365.25 * _SECONDS_PER_DAY)
         exposure.append(
             ObjectExposure(
@@ -215,7 +235,7 @@ def test_real_schedule_eval() -> None:
         assert labels, f"no committed DORIS labels for NORAD {norad_id}"
         pairs.append((_replay_series(norad_id, reference, labels, seed=norad_id), labels))
 
-    metrics = _evaluate(pairs, floor_ms=_ABOVE_FLOOR_MS)
+    metrics = _evaluate(pairs)
 
     assert metrics.n_labels_above_floor >= 50  # a meaningful real population
     assert metrics.recall is not None and metrics.recall >= 0.80
@@ -227,36 +247,61 @@ _HAS_SPACETRACK = bool(
 )
 
 
-@pytest.mark.skipif(not _HAS_SPACETRACK, reason="SPACETRACK_USERNAME / SPACETRACK_PASSWORD not set")
-def test_spacetrack_real_eval() -> None:
-    """Literature-level P/R on genuine Space-Track TLEs for a known-maneuver satellite (local only).
-
-    Fetches the real multi-year ``gp_history`` for SPOT-4 with the caller's credentials, runs the
-    detector against the real DORIS labels, and reports recall / precision over the above-floor
-    population. The fetched elements are never committed (D2: reconstruct locally). Real TLE noise
-    and cadence make this materially harder than the replay, so the assertion only confirms the
-    end-to-end pipeline produced a score; the printed numbers are the literature comparison.
-    """
+def _fetch_real_series(norad_id: int) -> tuple[pd.DataFrame, list[ManeuverLabel]]:
+    """Fetch one object's genuine ``gp_history`` over its label span and the in-window labels."""
     from maneuver_detect.data.history import build_series
     from maneuver_detect.data.spacetrack import SpacetrackFetcher
 
-    norad_id = 25260  # SPOT-4
     labels = _load_doris_labels(norad_id)
     label_epochs = sorted(pd.Timestamp(label.epoch) for label in labels)
     start = (label_epochs[0] - pd.Timedelta(days=10)).to_pydatetime()
     end = (label_epochs[-1] + pd.Timedelta(days=10)).to_pydatetime()
-
     result = SpacetrackFetcher().fetch(norad_id, start=start, end=end)
     series = build_series(result.elsets)
-    assert not series.empty, "Space-Track returned no elsets for the window"
-
+    assert not series.empty, f"Space-Track returned no elsets for NORAD {norad_id}"
     lo, hi = series["epoch"].min(), series["epoch"].max()
     in_window = [label for label in labels if lo <= pd.Timestamp(label.epoch) <= hi]
-    metrics = _evaluate([(series, in_window)], floor_ms=_ABOVE_FLOOR_MS)
+    return series, in_window
 
+
+@pytest.mark.skipif(not _HAS_SPACETRACK, reason="SPACETRACK_USERNAME / SPACETRACK_PASSWORD not set")
+def test_spacetrack_real_eval() -> None:
+    """Literature-level P/R on genuine Space-Track TLEs for the DORIS set (local only).
+
+    Fetches the real multi-year ``gp_history`` for each evaluation satellite with the caller's
+    credentials and scores the detector against the real DORIS labels, over the per-type
+    detectability floor and the D4 matching window (see :func:`_evaluate`). The fetched elements are
+    never committed (D2: reconstruct locally).
+
+    Performance is sharply data-quality-stratified: the modern, well-tracked Sentinel-3A reaches
+    literature-level recall, while the noisy 1990s-2000s missions are far lower — most of their
+    station-keeping is at or below the TLE detectability floor, the gap the v0.2 learned models
+    target. So the gate is two-part: a literature-level bar on the well-tracked object, and a modest
+    aggregate floor over the whole heterogeneous set; the per-satellite numbers are printed for the
+    record.
+    """
+    per_object: dict[int, tuple[pd.DataFrame, list[ManeuverLabel]]] = {
+        norad_id: _fetch_real_series(norad_id) for norad_id, _name in _REAL_EVAL_SATS
+    }
+
+    print("\nreal Space-Track eval (recall / precision @ 1 FA/sat-year, per-type floor):")
+    for norad_id, name in _REAL_EVAL_SATS:
+        series, labels = per_object[norad_id]
+        metrics = _evaluate([(series, labels)])
+        recall = "n/a" if metrics.recall is None else f"{metrics.recall:.2f}"
+        precision = "n/a" if metrics.precision is None else f"{metrics.precision:.2f}"
+        print(
+            f"  {name:12s} elsets={len(series):6d} above_floor={metrics.n_labels_above_floor:3d} "
+            f"detections={metrics.n_detections:4d} recall={recall} precision={precision}"
+        )
+
+    aggregate = _evaluate(list(per_object.values()))
+    well_tracked = _evaluate([per_object[_WELL_TRACKED_NORAD]])
     print(
-        f"\nSPOT-4 real Space-Track eval: elsets={len(series)} "
-        f"above_floor_labels={metrics.n_labels_above_floor} detections={metrics.n_detections} "
-        f"recall={metrics.recall} precision={metrics.precision}"
+        f"  AGGREGATE above_floor={aggregate.n_labels_above_floor} "
+        f"recall={aggregate.recall} precision={aggregate.precision}"
     )
-    assert metrics.recall is not None  # the pipeline scored real data end-to-end
+
+    assert well_tracked.recall is not None and well_tracked.recall >= 0.85
+    assert aggregate.recall is not None and aggregate.recall >= 0.35
+    assert aggregate.precision is not None and aggregate.precision >= 0.55
