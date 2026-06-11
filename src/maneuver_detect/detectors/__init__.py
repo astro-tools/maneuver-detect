@@ -11,7 +11,13 @@ from __future__ import annotations
 
 from maneuver_detect.detectors.base import Detector
 
-__all__ = ["Detector", "available_models", "get_detector", "register_detector"]
+__all__ = [
+    "ClassicalDetector",
+    "Detector",
+    "available_models",
+    "get_detector",
+    "register_detector",
+]
 
 _REGISTRY: dict[str, type[Detector]] = {}
 
@@ -48,3 +54,11 @@ def get_detector(model: str) -> Detector:
 def available_models() -> list[str]:
     """Return the sorted names of all registered detectors."""
     return sorted(_REGISTRY)
+
+
+# Register the built-in detectors. The import sits at the foot of the module — after the registry
+# helpers — so importing the package both exposes the registry API and registers the classical
+# detector, making it available to ``detect()`` without the caller importing its module.
+from maneuver_detect.detectors.classical import ClassicalDetector  # noqa: E402
+
+register_detector(ClassicalDetector)
