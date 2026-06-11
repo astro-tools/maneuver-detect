@@ -212,7 +212,10 @@ def _render(result: pd.DataFrame, output_format: str) -> str:
     on a cp1252 Windows console.
     """
     if output_format == "csv":
-        return result.to_csv(index=False).rstrip("\n")
+        # Pin the line terminator to "\n": to_csv defaults to os.linesep ("\r\n" on Windows), which
+        # combined with a text-mode --output write would double the newlines. A fixed "\n" keeps the
+        # output deterministic across platforms.
+        return result.to_csv(index=False, lineterminator="\n").rstrip("\n")
     if output_format == "json":
         return str(result.to_json(orient="records", date_format="iso"))
     if result.empty:
