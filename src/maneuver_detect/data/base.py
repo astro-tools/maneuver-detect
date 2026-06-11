@@ -23,7 +23,7 @@ from typing import ClassVar, TypeVar
 
 import httpx
 
-from maneuver_detect import __version__
+from maneuver_detect.__about__ import __version__
 from maneuver_detect.data.cache import DEFAULT_TTLS, Cache, CacheHit, default_cache
 from maneuver_detect.data.elset import Elset, from_omm
 from maneuver_detect.data.ratelimit import RateLimiter

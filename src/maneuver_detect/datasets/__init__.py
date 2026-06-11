@@ -1,0 +1,59 @@
+"""Dataset accessors and the reconstructable v0.1 dataset.
+
+``tle_history`` is the per-object accessor — the cleaned mean-element series for one NORAD id. The
+recipe / manifest / reconstruction surface assembles the full v0.1 **labelled** dataset from a
+pinned :class:`Recipe` (D2): each series is re-fetched and re-derived locally, then verified
+byte-for-byte against a content-hash :class:`Manifest` (D8). The raw catalogue data is never shipped
+— only the recipe parameters, the open labels, and the per-series digests. The benchmark release
+adds the labelled train / val / test splits on top of this.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from maneuver_detect.datasets.catalogue import (
+    DATASET_VERSION,
+    GPS_CONSTELLATION,
+    GpsSatellite,
+    gps_svn_to_norad,
+    v01_recipe,
+)
+from maneuver_detect.datasets.manifest import Manifest, SeriesDigest, series_sha256
+from maneuver_detect.datasets.recipe import Recipe, RecipeEntry
+from maneuver_detect.datasets.reconstruct import (
+    LabelledDataset,
+    ObjectDataset,
+    reconstruct,
+    verify,
+)
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+__all__ = [
+    "DATASET_VERSION",
+    "GPS_CONSTELLATION",
+    "GpsSatellite",
+    "LabelledDataset",
+    "Manifest",
+    "ObjectDataset",
+    "Recipe",
+    "RecipeEntry",
+    "SeriesDigest",
+    "gps_svn_to_norad",
+    "reconstruct",
+    "series_sha256",
+    "tle_history",
+    "v01_recipe",
+    "verify",
+]
+
+
+def tle_history(norad_id: int, *, start: str | None = None, end: str | None = None) -> pd.DataFrame:
+    """Return the cleaned mean-element TLE history for ``norad_id`` as a DataFrame.
+
+    ``start`` and ``end`` bound the epoch range (ISO-8601); when omitted, the full available
+    history is returned. Fetching, caching, and cleaning live in the data layer.
+    """
+    raise NotImplementedError("The data layer is not implemented yet.")

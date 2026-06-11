@@ -13,10 +13,9 @@ from __future__ import annotations
 import pandas as pd
 
 from maneuver_detect import datasets
+from maneuver_detect.__about__ import __version__
 from maneuver_detect.detectors import Detector, available_models, get_detector
 from maneuver_detect.schema import Maneuver, ManeuverType
-
-__version__ = "0.1.0"
 
 __all__ = [
     "Detector",
