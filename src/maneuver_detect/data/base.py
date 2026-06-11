@@ -111,6 +111,11 @@ def parse_bound(value: str | datetime | None) -> datetime | None:
 
     Accepts an ISO-8601 string (``T`` or space separator, optional trailing ``Z``) or a datetime;
     a naive value is assumed UTC. Raises :class:`ValueError` on an unparseable string.
+
+    Bounds are **exact instants**: a date-only value resolves to ``00:00:00`` UTC (the start of that
+    day). Because :func:`in_range` is inclusive on both ends, a date-only ``end`` therefore excludes
+    everything after midnight on that day — to cover a whole final day, pass an explicit end-of-day
+    time (``"2024-06-30T23:59:59Z"``) or the following day's date.
     """
     if value is None:
         return None

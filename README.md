@@ -62,8 +62,11 @@ on a Hugging Face Space; both are versioned in lockstep with each release.
 pip install maneuver-detect
 ```
 
-The base install is fully permissive and CPU-only. The optional time-series foundation-model
-baseline lives behind the `[foundation]` extra:
+The base install carries only permissive dependencies. It includes the PyTorch / Lightning
+modelling stack and the Hugging Face Hub / `datasets` libraries — the learned baselines and the
+Hub-distributed dataset and checkpoints build on them — so a GPU is needed only to *train* new
+baselines, never to install the package or run the classical detector. The optional time-series
+foundation-model baseline lives behind the `[foundation]` extra:
 
 ```bash
 pip install "maneuver-detect[foundation]"

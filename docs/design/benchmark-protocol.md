@@ -32,9 +32,9 @@ prediction target is **per inter-elset gap**, not a continuous timestamp.
 
 - A predicted detection **matches** a labelled maneuver if it falls in the **labelled inter-elset gap or
   within ±1 adjacent gap (≈ ±2 days)** (D4).
-- **One-to-one assignment**: each label is matched by at most one detection and vice versa (optimal/greedy
-  assignment within the tolerance); unmatched detections are false positives, unmatched (above-floor)
-  labels are false negatives.
+- **One-to-one assignment**: each label is matched by at most one detection and vice versa (greedy
+  assignment by descending detection confidence within the tolerance — the standard detection protocol);
+  unmatched detections are false positives, unmatched (above-floor) labels are false negatives.
 - Unit-tested on hand-constructed near-boundary cases.
 
 ## 5. Metric (#13)

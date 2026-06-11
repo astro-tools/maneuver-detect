@@ -45,6 +45,7 @@ The detector registers under the name ``"classical"`` and is the default that
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 
@@ -65,6 +66,8 @@ from maneuver_detect.physics import (
 from maneuver_detect.schema import COLUMNS, Maneuver, ManeuverType, empty_frame, to_frame
 
 __all__ = ["ClassicalDetector"]
+
+_logger = logging.getLogger(__name__)
 
 FloatArray = npt.NDArray[np.float64]
 
@@ -97,6 +100,36 @@ _DT_FLOOR_DAYS = 1.0 / 1440.0  # one minute
 _SIGMA_FLOOR = 1e-12
 
 _DEG_TO_RAD = math.pi / 180.0
+
+# The finite-valued mean-element columns. A single non-finite value (a corrupt elset that slipped
+# through cleaning) poisons the robust noise scale and silently suppresses *every* detection for the
+# object, so rows carrying one are dropped before scoring (see :func:`_drop_non_finite`).
+_ELEMENT_COLUMNS: tuple[str, ...] = (
+    "semi_major_axis",
+    "eccentricity",
+    "inclination",
+    "raan",
+    "arg_perigee",
+)
+
+
+def _drop_non_finite(frame: pd.DataFrame) -> pd.DataFrame:
+    """Drop rows with a non-finite (NaN/inf) value in any mean-element column.
+
+    A non-finite element propagates through the median/MAD noise scale and turns every per-gap
+    significance into NaN, so ``NaN < threshold`` is always false and the object returns zero
+    detections with no error — a silent false-negative across the whole satellite. Dropping the
+    offending rows lets detection proceed on the good elsets (a corrupt elset is unusable anyway)
+    and logs how many were removed rather than failing silently.
+    """
+    elements = frame[list(_ELEMENT_COLUMNS)].to_numpy(dtype=float)
+    finite = np.isfinite(elements).all(axis=1)
+    if bool(finite.all()):
+        return frame
+    dropped = int((~finite).sum())
+    _logger.warning("dropping %d elset(s) with non-finite mean elements before detection", dropped)
+    kept: pd.DataFrame = frame.loc[finite]
+    return kept
 
 
 class ClassicalDetector(Detector):
@@ -205,9 +238,10 @@ class ClassicalDetector(Detector):
         """
         model = self._prepare(history)
         if model is None:
-            if history.empty:
-                raise ValueError("cannot compute a floor for an empty history")
-            median_a = float(np.median(history["semi_major_axis"].to_numpy(dtype=float)))
+            finite = _drop_non_finite(history)
+            if finite.empty:
+                raise ValueError("cannot compute a floor for an empty or all-non-finite history")
+            median_a = float(np.median(finite["semi_major_axis"].to_numpy(dtype=float)))
             nominal = detectability_floor_ms(_orbit_class_of(median_a))
             return dict.fromkeys(ManeuverType, nominal)
         return self._object_floors(model)
@@ -284,6 +318,7 @@ class ClassicalDetector(Detector):
         gap. Both :meth:`_detect_object` and :meth:`floor_for` build on this so the floor is
         calibrated against exactly the series the detector runs on.
         """
+        frame = _drop_non_finite(frame)
         if self.regularize_daily:
             frame = _regularize_daily(frame)
         n = len(frame)

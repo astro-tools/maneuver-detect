@@ -124,3 +124,71 @@ START TIME ZULU: 0600
 """
     with pytest.raises(ValueError, match="STOP JDAY"):
         parse_nanus(missing_stop)
+
+
+# A late-December notice announcing an early-January burn: the day-of-year belongs to the *next*
+# calendar year, not the DTG's year. Applying the DTG year to the JDAY would mis-date it by a year
+# and drop the label into the wrong (or no) elset gap.
+_FCSTDV_YEAR_ROLLOVER = """\
+NANU TYPE: FCSTDV
+NANU NUMBER: 2024366
+NANU DTG: 281200Z DEC 2024
+SVN: 62
+PRN: 25
+START JDAY: 003
+START TIME ZULU: 0600
+STOP JDAY: 003
+STOP TIME ZULU: 1200
+"""
+
+
+def test_dtg_year_rollover_dates_window_in_next_year() -> None:
+    label = parse_nanus(_FCSTDV_YEAR_ROLLOVER)[0]
+    # JDAY 003 announced on 28 Dec 2024 → 3 Jan 2025, not 3 Jan 2024.
+    assert (label.window_start.year, label.window_start.month, label.window_start.day) == (
+        2025,
+        1,
+        3,
+    )
+    assert label.window_end.year == 2025
+
+
+# A window that straddles New Year's: START on the last day of a (leap) year, STOP in the next.
+# 2024 is a leap year, so JDAY 366 is 31 Dec 2024 and JDAY 001 is 1 Jan 2025.
+_FCSTDV_WINDOW_WRAPS_NEW_YEAR = """\
+NANU TYPE: FCSTDV
+NANU NUMBER: 2024365
+NANU DTG: 301200Z DEC 2024
+SVN: 62
+PRN: 25
+START JDAY: 366
+START TIME ZULU: 2200
+STOP JDAY: 001
+STOP TIME ZULU: 0200
+"""
+
+
+def test_window_wrapping_new_year_resolves_stop_in_next_year() -> None:
+    label = parse_nanus(_FCSTDV_WINDOW_WRAPS_NEW_YEAR)[0]
+    assert (label.window_start.year, label.window_start.month, label.window_start.day) == (
+        2024,
+        12,
+        31,
+    )
+    assert (label.window_end.year, label.window_end.month, label.window_end.day) == (2025, 1, 1)
+    assert label.window_end > label.window_start
+
+
+def test_malformed_dtg_raises() -> None:
+    bad_dtg = """\
+NANU TYPE: FCSTDV
+NANU NUMBER: 2025201
+NANU DTG: MARCH 2025
+SVN: 62
+START JDAY: 120
+START TIME ZULU: 0600
+STOP JDAY: 120
+STOP TIME ZULU: 1200
+"""
+    with pytest.raises(ValueError, match="DTG"):
+        parse_nanus(bad_dtg)
