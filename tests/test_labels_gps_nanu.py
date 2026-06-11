@@ -85,6 +85,34 @@ def test_injected_crosswalk_overrides_seed() -> None:
     assert labels[0].norad_id == 99999
 
 
+# The real archived NANU format: fields are indented and the type carries a list-number prefix,
+# under a NOTICE/SUBJ header.
+_ARCHIVE_FCSTDV = """\
+NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2024002
+SUBJ: SVN65 (PRN24) FORECAST OUTAGE JDAY 011/1130 - JDAY 011/2330
+1.     NANU TYPE: FCSTDV
+       NANU NUMBER: 2024002
+       NANU DTG: 071844Z JAN 2024
+       SVN: 65
+       PRN: 24
+       START JDAY: 011
+       START TIME ZULU: 1130
+       STOP JDAY: 011
+       STOP TIME ZULU: 2330
+
+2.  CONDITION: GPS SATELLITE SVN65 (PRN24) WILL BE UNUSABLE ON JDAY 011.
+"""
+
+
+def test_parses_indented_numbered_archive_format() -> None:
+    labels = parse_nanus(_ARCHIVE_FCSTDV, svn_to_norad={"SVN65": 38833})
+    assert len(labels) == 1
+    assert labels[0].norad_id == 38833
+    assert labels[0].orbit_class is OrbitClass.MEO
+    assert labels[0].window_start.hour == 11
+    assert labels[0].window_end.hour == 23
+
+
 def test_malformed_fcstdv_raises() -> None:
     missing_stop = """\
 NANU TYPE: FCSTDV
