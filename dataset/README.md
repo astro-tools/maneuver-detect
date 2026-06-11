@@ -24,9 +24,10 @@ hash requires fetching the real series.
 
 ## Class scope
 
-- **LEO** — the DORIS/IDS altimetry satellites that publish a `man.txt` maneuver file (the
-  Δv-labelled set).
-- **MEO** — the operational GPS constellation; labels are the NANU FCSTDV notices (epoch-only).
+- **LEO** — the DORIS/IDS satellites that publish a `man.txt` maneuver file: the altimetry missions
+  (the Δv-labelled core) and the SPOT satellites.
+- **MEO** — the operational GPS constellation; labels are the FCSTDV ("forecast delta-V") notices
+  from the CelesTrak NANU archive (epoch-only).
 - **GEO** — deferred (no public GEO maneuver-label file source).
 
 ## Reconstructing / verifying
@@ -40,9 +41,14 @@ export SPACETRACK_PASSWORD='…'
 uv run maneuver-detect dataset build --out dataset/v0.1
 ```
 
-This fetches each catalogue object's mean-element history (cached and rate-limited), fetches the
-open DORIS/NANU label files, reconstructs the labelled dataset, and writes `recipe.json`,
-`labels.json`, and `manifest.json`. Re-running on the same recipe reproduces identical hashes, so a
+This fetches each catalogue object's mean-element history from Space-Track (cached and rate-limited),
+crawls the open DORIS `man.txt` files and the CelesTrak NANU archive for the maneuver labels,
+reconstructs the labelled dataset, and writes `recipe.json`, `labels.json`, and `manifest.json`.
+It is a long run — the GPS label archive is crawled file-by-file at a polite rate, in addition to
+the per-object Space-Track fetch. Re-running on the same recipe reproduces identical hashes, so a
 mismatch against the committed `manifest.json` means the reconstruction diverged.
+
+The GPS NANU archive is crawled over a year window — `--nanu-start-year` (default 2016) and
+`--nanu-end-year` (default: the current year) — so `labels.json` is a snapshot of that window.
 
 The raw fetched series is held only in the local cache; it is never written into this directory.
