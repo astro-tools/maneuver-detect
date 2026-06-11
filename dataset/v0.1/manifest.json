@@ -1,0 +1,240 @@
+{
+  "dataset_version": "0.1.0",
+  "digests": [
+    {
+      "n_elsets": 31360,
+      "norad_id": 20436,
+      "sha256": "1fcba99a1ae98cadb58e18222bf47e773e2ac415470c5ad8aa420ead042d1b43"
+    },
+    {
+      "n_elsets": 16810,
+      "norad_id": 22076,
+      "sha256": "616ae9b8bd050355da5a16f5312baef7d553e019f9195c7280e56a9ab5a613e7"
+    },
+    {
+      "n_elsets": 23990,
+      "norad_id": 22823,
+      "sha256": "7216cc7affa9587fc81d8bab4569a883848a4d17c338d10b136ad2360daae3bb"
+    },
+    {
+      "n_elsets": 29097,
+      "norad_id": 25260,
+      "sha256": "18d3672ae4ef43a3653621c273027600b175bcab1ce25121773d498f39254222"
+    },
+    {
+      "n_elsets": 12736,
+      "norad_id": 26407,
+      "sha256": "bc0001db23ec0f7d0b0e48193b15a5ab4e53d4d6c1e7872d4c94080ee63f1679"
+    },
+    {
+      "n_elsets": 12315,
+      "norad_id": 26997,
+      "sha256": "e690237dd98ae38458f8fb32355ccf8decf01be04c8d3966c3e85c6ce56d1566"
+    },
+    {
+      "n_elsets": 27216,
+      "norad_id": 27386,
+      "sha256": "b3856b445456094141804b82b37792ef62c5b5841ddedff66728d44bfbd3a76c"
+    },
+    {
+      "n_elsets": 27784,
+      "norad_id": 27421,
+      "sha256": "dfc4dedc8ccba2bbd00016801ed894005973b8507db64691db1bc3ce7c0c1c9c"
+    },
+    {
+      "n_elsets": 9989,
+      "norad_id": 27663,
+      "sha256": "b1e5eb063bd87c2d71e45ce71459e3ca8e888cc805b2045a5633a3c22247af32"
+    },
+    {
+      "n_elsets": 9355,
+      "norad_id": 28190,
+      "sha256": "699fb56ff0d4e55ce8e9c47786c94fbe2c7dced947a2c983d2beb3814b31ae36"
+    },
+    {
+      "n_elsets": 9704,
+      "norad_id": 28474,
+      "sha256": "c4c94d7034018f169462011ed9ae28618f2fdbc44cb0181e946f15688006df53"
+    },
+    {
+      "n_elsets": 8967,
+      "norad_id": 28874,
+      "sha256": "3585e51e5ab79e7c82115696d5b425475ea53890fe5c28586a3aac8c2cfb23a3"
+    },
+    {
+      "n_elsets": 8643,
+      "norad_id": 29486,
+      "sha256": "ccb98e7dcb3609d27e17a53c314875aa5d275486cabbf5279257cad342843c91"
+    },
+    {
+      "n_elsets": 7875,
+      "norad_id": 29601,
+      "sha256": "1c74e1a227c9c8304b7a30fc18de912ee9262411c8271aca55dedb1f6e0d5f4e"
+    },
+    {
+      "n_elsets": 7609,
+      "norad_id": 32260,
+      "sha256": "c69256ad2e0da2fae7b8b8bf216a6ad7368e4fc18fabeaa49a3c5e6b3909fc30"
+    },
+    {
+      "n_elsets": 7549,
+      "norad_id": 32384,
+      "sha256": "2aa1fcede076aa49b624bce9e0241fc56a8bcd8d705adb1c4fccd10e1d80cb06"
+    },
+    {
+      "n_elsets": 9024,
+      "norad_id": 32711,
+      "sha256": "7610382c1031919d01d459d0bde4f86495777f0184f03d35144fa5a7b5070014"
+    },
+    {
+      "n_elsets": 11773,
+      "norad_id": 33105,
+      "sha256": "e373aba99e893e15e97df525af7013acaf523eb041358b9651806682188440fa"
+    },
+    {
+      "n_elsets": 7130,
+      "norad_id": 35752,
+      "sha256": "fff19e218a09010e52a17ff4ed8225a848fdde2570598bad9e7be8d66a973ed9"
+    },
+    {
+      "n_elsets": 11587,
+      "norad_id": 36508,
+      "sha256": "f42311a8031cfb15f7f51610453d9734c080f90486e32e1a4738fdaaf38f9ab0"
+    },
+    {
+      "n_elsets": 6506,
+      "norad_id": 36585,
+      "sha256": "fbb276bbdf6e995195acad37c208675831458d4440fe4c3a750931a06235f849"
+    },
+    {
+      "n_elsets": 17220,
+      "norad_id": 37781,
+      "sha256": "18da49c8f6745f8b3c5d71103d3d1bcfe260f4aa80e70a71c59b463ec19b4f03"
+    },
+    {
+      "n_elsets": 5746,
+      "norad_id": 38833,
+      "sha256": "b98cc3cfdf1cd7e87a33b213f86a28c5d138b192588862ebfa8ec9a2be96606a"
+    },
+    {
+      "n_elsets": 10218,
+      "norad_id": 39086,
+      "sha256": "7d3fbb77ea35dc6f7ae4ce2a598a91a63cd3b7221f4df0c063fec4ac062ad3fc"
+    },
+    {
+      "n_elsets": 6111,
+      "norad_id": 39166,
+      "sha256": "b02fa1527d4754bcf265f348d100cae239ac19f52da99325a90c9901121b30e5"
+    },
+    {
+      "n_elsets": 5545,
+      "norad_id": 39533,
+      "sha256": "fbbe41be050c4aa15ac262326c51e875b3202df1abda8d8c344e9d39b2aedb82"
+    },
+    {
+      "n_elsets": 5790,
+      "norad_id": 39741,
+      "sha256": "bb0e104ebec501d526b3ded80693da7ce6abc924f4d41d5c0a7d8e7ad4d4aa6b"
+    },
+    {
+      "n_elsets": 5737,
+      "norad_id": 40105,
+      "sha256": "ac3c024f16426aea3f7d9f2148e715b36eeae575ee5d76c59919dd79fed99c2a"
+    },
+    {
+      "n_elsets": 5614,
+      "norad_id": 40294,
+      "sha256": "4c5e4dc989133fb3152953003915800df22d6541130e5c77388f33dd0945e50b"
+    },
+    {
+      "n_elsets": 5135,
+      "norad_id": 40534,
+      "sha256": "85c837c5184acac9717a23f010aa31ab9a38c613cb1e0351d71cb15ead0a6bd2"
+    },
+    {
+      "n_elsets": 5711,
+      "norad_id": 40730,
+      "sha256": "4108e35c3e7a109827fffc8126435fc22661d4c8f01af4d1720986bf10f9d0fc"
+    },
+    {
+      "n_elsets": 4806,
+      "norad_id": 41019,
+      "sha256": "d519a134afa2edd9e57a0ef24f337a7614e0c3168469f29a7f10fafc9b48c17a"
+    },
+    {
+      "n_elsets": 9283,
+      "norad_id": 41240,
+      "sha256": "e3fbb53faac85dac26a36ee4c5ca36c6df61f760b407c953199f676b1f5dab58"
+    },
+    {
+      "n_elsets": 4582,
+      "norad_id": 41328,
+      "sha256": "9bca1b313140f44428daf3d904e9b5764b6fb76295329c3afa30efd2881e78db"
+    },
+    {
+      "n_elsets": 15284,
+      "norad_id": 41335,
+      "sha256": "b475f004a5c39292cc9faa5a32c8e6e3ea6c6df22d9cd9f077acb62855679eb1"
+    },
+    {
+      "n_elsets": 6056,
+      "norad_id": 43437,
+      "sha256": "92f57120b58977304951f43c546bbe9da92f82fa796f7d47a343647741f03461"
+    },
+    {
+      "n_elsets": 4040,
+      "norad_id": 43873,
+      "sha256": "e61d13412cac0408a7336e4da2b0c750f8f81d10454bce98421fa561b3d72092"
+    },
+    {
+      "n_elsets": 3233,
+      "norad_id": 44506,
+      "sha256": "5f5e198ca42ff2b31b6237b032e8a9c0b70d6f0b97a69c3470e63a41aa2fc8de"
+    },
+    {
+      "n_elsets": 2685,
+      "norad_id": 45854,
+      "sha256": "62064043d59495dbd9fb6538e0613cb418c08fcd189442fe74d09c2b452a0fe1"
+    },
+    {
+      "n_elsets": 2371,
+      "norad_id": 46826,
+      "sha256": "da503c52855bbe8269caa081f5e167bcd1f3bd6434650ae3f6799b45d3df7d54"
+    },
+    {
+      "n_elsets": 4357,
+      "norad_id": 46984,
+      "sha256": "2f6014476ee606095aa5042aee1b22c51c5b7a1859fe9915a8841ef79f79cbc3"
+    },
+    {
+      "n_elsets": 2101,
+      "norad_id": 48859,
+      "sha256": "be1aad0d2406dbf9d809f35e9b7f2319ebf52e2e0e8582aa721f8b7470e02b03"
+    },
+    {
+      "n_elsets": 843,
+      "norad_id": 55268,
+      "sha256": "ec79d30f74e514987d7aca5624675c08cf0cd274ae60d4ed0c4802c34d9b7a9d"
+    },
+    {
+      "n_elsets": 405,
+      "norad_id": 62339,
+      "sha256": "a53e38f4d1f5c93b00f9ee5fb9c283e34f76c5a981019a93207140b5b328bc1d"
+    },
+    {
+      "n_elsets": 294,
+      "norad_id": 64202,
+      "sha256": "8da80c7691a2be0dca9eb1c100b8fae4cfff50edf05b29137db446e28360aa6e"
+    },
+    {
+      "n_elsets": 88,
+      "norad_id": 67588,
+      "sha256": "7f519d6b8ed41734f0bf4a815ec108362ee9d175e3a687521495f852b3238459"
+    },
+    {
+      "n_elsets": 38,
+      "norad_id": 68791,
+      "sha256": "eb3a30522f6f90afbcbc99ce119f1fd59d047de3a575147582d0f64f67a863b7"
+    }
+  ]
+}
