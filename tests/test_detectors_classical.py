@@ -199,6 +199,23 @@ def test_missing_columns_raises() -> None:
         ClassicalDetector().detect(frame)
 
 
+def test_non_finite_elset_does_not_blind_the_detector(caplog: pytest.LogCaptureFixture) -> None:
+    # A single corrupt elset (a non-finite value that slipped through cleaning) must not silently
+    # suppress *every* detection for the object: a NaN/inf poisons the robust noise scale and turns
+    # every significance into NaN. The offending row is dropped (and logged), and the maneuver on a
+    # different gap is still found.
+    burn = Burn(60, "in_track_ms", 2.0)
+    frame = synthetic_series(norad_id=25544, seed=0, burns=(burn,))
+    corrupt = frame.copy()
+    corrupt.loc[10, "inclination"] = np.inf  # a corrupt elset well away from the burn gap
+    corrupt.loc[11, "semi_major_axis"] = np.nan
+    with caplog.at_level("WARNING"):
+        out = detect(corrupt)
+    assert len(out) == 1
+    assert out.iloc[0]["type"] == ManeuverType.IN_TRACK.value
+    assert "non-finite" in caplog.text  # the drop is surfaced, not silent
+
+
 # --------------------------------------------------------------------------- positive detection
 def test_detects_in_track_burn_with_recovered_delta_v() -> None:
     burn = Burn(60, "in_track_ms", 2.0)
