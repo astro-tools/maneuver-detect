@@ -43,18 +43,32 @@ From the command line, on a NORAD id (fetched live) or a local TLE file:
 maneuver-detect detect 25544
 ```
 
-## Dataset, models, and leaderboard
+Runnable examples live in [`examples/`](examples/): [`detect_norad.py`](examples/detect_norad.py)
+detects maneuvers for a NORAD id, and [`reproduce_baseline.py`](examples/reproduce_baseline.py)
+runs the classical detector through the benchmark scorer on a labelled series.
 
-- **Dataset** — a curated, labelled dataset built from public TLE history (CelesTrak, Space-Track,
-  TraCSS) and operator maneuver announcements, distributed per the source-data terms as a pinned,
-  byte-deterministic reconstruction recipe plus the openly-licensed data layer.
-- **Model checkpoints** — the classical baseline, and the learned baselines as they land, each
-  with a model card documenting training data, splits, and metrics.
-- **Leaderboard** — a public leaderboard with frozen train / val / test splits and held-out test
-  labels, so submitted methods get directly comparable scores.
+## Dataset and benchmark
 
-The dataset and checkpoints are distributed through the Hugging Face Hub and the leaderboard runs
-on a Hugging Face Space; both are versioned in lockstep with each release.
+- **Dataset** — a curated, labelled set of LEO altimetry and MEO GPS satellites, built from public
+  TLE history and operator maneuver announcements. The raw multi-year history comes from
+  Space-Track, whose terms do not permit redistributing the data or analysis derived from it, so the
+  dataset ships as a pinned, byte-deterministic **reconstruction recipe** plus a content-hash
+  manifest: you rebuild it locally from your own Space-Track account with
+  `maneuver-detect dataset build`, and the manifest verifies the result byte-for-byte. The authored
+  artifacts (labels, recipe, splits, manifest) are CC-BY-4.0.
+- **Classical baseline** — a rule-based reference detector (time-aware Holt smoothing, a
+  multi-element jump rule, and the vis-viva / Gauss Δv inversion) that ships in the package. It is
+  the baseline every learned model must beat.
+- **Benchmark** — frozen, leak-free train / val / test splits (by satellite and time), the
+  detection-matching rule, the per-class metric (precision/recall at a fixed false-alarm rate), and
+  a deterministic scorer that reproduces the published numbers from a committed predictions file.
+
+v0.1 ships the dataset recipe, the classical detector, and the local scorer. A hosted leaderboard,
+and Hugging Face Hub distribution of the dataset and learned-model checkpoints, are planned for a
+later release. The
+[dataset](https://astro-tools.github.io/maneuver-detect/dataset/) and
+[benchmark](https://astro-tools.github.io/maneuver-detect/benchmark/) references document the source
+terms and the full protocol.
 
 ## Installation
 
@@ -83,6 +97,8 @@ maneuver-detect supports Python 3.10, 3.11, and 3.12.
   small inversions the Δv estimate requires; it does not do precise propagation.
 - **Not a general time-series-anomaly framework.** The detectors are maneuver detectors on
   orbital element series, not a reusable anomaly library.
+- **Not a cross-catalog correlation or object-association tool.** It works one catalogued object's
+  history at a time; it does not correlate observations across catalogs or sensors.
 - **No closed or commercial data.** Only publicly available TLEs and publicly released maneuver
   labels are used; redistribution-restricted commercial SSA products are excluded.
 
@@ -91,7 +107,7 @@ maneuver-detect supports Python 3.10, 3.11, and 3.12.
 Full documentation is at
 [astro-tools.github.io/maneuver-detect](https://astro-tools.github.io/maneuver-detect/) — getting
 started, the dataset and label-source reference, the benchmark protocol, the output schema and
-Δv-inversion reference, and the API reference.
+Δv-inversion reference, the frozen design decisions, and the API reference.
 
 ## Development
 
