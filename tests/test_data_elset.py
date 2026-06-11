@@ -151,8 +151,8 @@ def test_naive_epoch_construction_is_rejected() -> None:
 
 # --- TLE-file parsing (the local-file counterpart to the OMM fetchers) ---------------------
 
-_ISS_LINE1 = "1 25544U 98067A   24001.50000000  .00016717  00000-0  10270-3 0  9005"
-_ISS_LINE2 = "2 25544  51.6400 208.0000 0006703 130.0000 325.0000 15.50000000123456"
+_ISS_LINE1 = "1 25544U 98067A   24001.50000000  .00016717  00000-0  10270-3 0  9009"
+_ISS_LINE2 = "2 25544  51.6400 208.0000 0006703 130.0000 325.0000 15.50000000123454"
 
 
 def test_from_tle_parses_elements() -> None:
@@ -176,8 +176,8 @@ def test_from_tle_parses_elements() -> None:
 
 def test_from_tle_two_digit_year_window() -> None:
     # A two-digit year >= 57 maps to the 1900s (the standard TLE convention).
-    line1 = "1 00001U 57001A   57001.00000000  .00000000  00000-0  00000-0 0  9990"
-    line2 = "2 00001  51.6400 208.0000 0006703 130.0000 325.0000 15.50000000123456"
+    line1 = "1 00001U 57001A   57001.00000000  .00000000  00000-0  00000-0 0  9997"
+    line2 = "2 00001  51.6400 208.0000 0006703 130.0000 325.0000 15.50000000123455"
     assert from_tle(line1, line2).epoch.year == 1957
 
 
@@ -189,12 +189,12 @@ def test_from_tle_two_digit_year_window() -> None:
         (_ISS_LINE2, _ISS_LINE1, "malformed TLE line 1"),  # swapped line order
         (
             _ISS_LINE1,
-            "2 99999  51.6400 208.0000 0006703 130.0000 325.0000 15.50000000123456",
+            "2 99999  51.6400 208.0000 0006703 130.0000 325.0000 15.50000000123459",
             "catalogue-number mismatch",
         ),
         (
             _ISS_LINE1,
-            "2 25544  51.6400 208.0000 0006703 130.0000 325.0000 00.00000000123456",
+            "2 25544  51.6400 208.0000 0006703 130.0000 325.0000 00.00000000123453",
             "non-physical mean motion",
         ),
     ],
@@ -202,6 +202,25 @@ def test_from_tle_two_digit_year_window() -> None:
 def test_from_tle_malformed_raises(line1: str, line2: str, match: str) -> None:
     with pytest.raises(ValueError, match=match):
         from_tle(line1, line2)
+
+
+@pytest.mark.parametrize("line_no", [1, 2])
+def test_from_tle_bad_checksum_raises(line_no: int) -> None:
+    # Flip the column-69 check digit on one line; the other line stays valid.
+    good = _ISS_LINE1 if line_no == 1 else _ISS_LINE2
+    bad = good[:-1] + ("0" if good[-1] != "0" else "1")
+    pair = (bad, _ISS_LINE2) if line_no == 1 else (_ISS_LINE1, bad)
+    with pytest.raises(ValueError, match=f"line {line_no} checksum mismatch"):
+        from_tle(*pair)
+
+
+def test_from_tle_silent_field_corruption_is_caught() -> None:
+    # The motivating case: a single-digit corruption in a data field that twoline2rv would accept
+    # silently now fails the checksum, since column 69 no longer matches the altered columns 1-68.
+    corrupted = _ISS_LINE1[:20] + ("9" if _ISS_LINE1[20] != "9" else "8") + _ISS_LINE1[21:]
+    assert corrupted != _ISS_LINE1 and len(corrupted) == len(_ISS_LINE1)
+    with pytest.raises(ValueError, match="line 1 checksum mismatch"):
+        from_tle(corrupted, _ISS_LINE2)
 
 
 def test_read_tle_file_two_line(tmp_path: Path) -> None:
@@ -213,8 +232,8 @@ def test_read_tle_file_two_line(tmp_path: Path) -> None:
 
 def test_read_tle_file_three_line_skips_name(tmp_path: Path) -> None:
     # A leading name line (3LE) and blank lines are ignored; two pairs parse in file order.
-    line1b = "1 25544U 98067A   24002.50000000  .00016717  00000-0  10270-3 0  9013"
-    line2b = "2 25544  51.6400 207.0000 0006703 131.0000 326.0000 15.50000000123463"
+    line1b = "1 25544U 98067A   24002.50000000  .00016717  00000-0  10270-3 0  9011"
+    line2b = "2 25544  51.6400 207.0000 0006703 131.0000 326.0000 15.50000000123466"
     path = tmp_path / "history.tle"
     path.write_text(f"ISS (ZARYA)\n{_ISS_LINE1}\n{_ISS_LINE2}\n\nISS (ZARYA)\n{line1b}\n{line2b}\n")
     elsets = read_tle_file(path)

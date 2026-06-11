@@ -21,18 +21,25 @@ from maneuver_detect.cli import _build_parser, _load_history, _render
 from maneuver_detect.errors import MissingCredentialError
 from maneuver_detect.schema import COLUMNS, Maneuver, ManeuverType, to_frame
 
-# A valid ISS line pair; the day-of-year and trailing checksum are varied per epoch (the checksum
-# is not validated by the parser). Four daily epochs — enough to assemble a series, too few for the
-# detector to fire, so the TLE-file path exercises end-to-end without depending on a detection.
-_TLE_LINE1 = "1 25544U 98067A   240{day:02d}.50000000  .00016717  00000-0  10270-3 0  900{n}"
-_TLE_LINE2 = "2 25544  51.6400 208.0000 0006703 130.0000 325.0000 15.5000000012345{n}"
+# A valid ISS line pair as column-1-68 bodies; the day-of-year varies line 1 per epoch and the
+# column-69 modulo-10 checksum is appended per line so the parser's checksum guard accepts the
+# fixture. Four daily epochs — enough to assemble a series, too few for the detector to fire, so the
+# TLE-file path exercises end-to-end without depending on a detection.
+_TLE_LINE1_BODY = "1 25544U 98067A   240{day:02d}.50000000  .00016717  00000-0  10270-3 0  900"
+_TLE_LINE2_BODY = "2 25544  51.6400 208.0000 0006703 130.0000 325.0000 15.5000000012345"
+
+
+def _tle_line(body: str) -> str:
+    """Append the TLE column-69 modulo-10 checksum to a 68-character line body."""
+    total = sum((ord(c) - 48 if "0" <= c <= "9" else 1 if c == "-" else 0) for c in body)
+    return f"{body}{total % 10}"
 
 
 def _write_tle_file(tmp_path: Path, days: tuple[int, ...] = (1, 2, 3, 4)) -> Path:
     lines = ["ISS (ZARYA)"]
-    for index, day in enumerate(days):
-        lines.append(_TLE_LINE1.format(day=day, n=index))
-        lines.append(_TLE_LINE2.format(n=index))
+    for day in days:
+        lines.append(_tle_line(_TLE_LINE1_BODY.format(day=day)))
+        lines.append(_tle_line(_TLE_LINE2_BODY))
     path = tmp_path / "history.tle"
     path.write_text("\n".join(lines) + "\n")
     return path
