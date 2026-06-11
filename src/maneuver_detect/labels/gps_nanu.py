@@ -46,6 +46,35 @@ def _require(block: str, key: str) -> str:
     return value
 
 
+#: Month abbreviations as they appear in a NANU DTG (``DDHHMMZ MON YYYY``).
+_DTG_MONTHS = {
+    name: number
+    for number, name in enumerate(
+        ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"),
+        start=1,
+    )
+}
+
+#: A NANU is a forward-looking forecast, so its maneuver window falls on or shortly after the
+#: notice's DTG. If a day-of-year placed in the DTG's own calendar year would land this many days
+#: *before* the DTG, the maneuver belongs to the following year instead — a late-December notice
+#: announcing an early-January burn, or a window whose STOP wraps past 31 December. Forecasts never
+#: look months ahead, so the threshold only ever catches the year rollover.
+_FORECAST_LOOKBACK_DAYS = 180
+
+
+def _parse_dtg(dtg: str) -> datetime:
+    """Parse a NANU DTG (``DDHHMMZ MON YYYY``) into a timezone-aware UTC datetime."""
+    match = re.match(r"(?i)^(\d{2})(\d{2})(\d{2})Z\s+([A-Z]{3})\s+(\d{4})$", dtg.strip())
+    if match is None:
+        raise ValueError(f"FCSTDV NANU DTG is not 'DDHHMMZ MON YYYY': {dtg!r}")
+    day, hour, minute, month_name, year = match.groups()
+    month = _DTG_MONTHS.get(month_name.upper())
+    if month is None:
+        raise ValueError(f"FCSTDV NANU DTG names an unknown month: {dtg!r}")
+    return datetime(int(year), month, int(day), int(hour), int(minute), tzinfo=timezone.utc)
+
+
 def _window_dt(year: int, jday: int, zulu: str) -> datetime:
     """Day-of-year + ``HHMM`` Zulu → timezone-aware UTC datetime (NANU times are UTC)."""
     if len(zulu) != 4 or not zulu.isdigit():
@@ -54,24 +83,31 @@ def _window_dt(year: int, jday: int, zulu: str) -> datetime:
     return base.replace(hour=int(zulu[:2]), minute=int(zulu[2:]))
 
 
+def _maneuver_window(dtg: datetime, jday: int, zulu: str) -> datetime:
+    """Resolve a START/STOP day-of-year against the DTG, rolling to the next calendar year when the
+    JDAY would otherwise sit far in the DTG's past (the year-boundary case). Applied independently
+    to START and STOP, this dates a window that wraps past New Year's correctly without any
+    cross-field comparison: only the small post-rollover JDAY trips the lookback.
+    """
+    when = _window_dt(dtg.year, jday, zulu)
+    if dtg - when > timedelta(days=_FORECAST_LOOKBACK_DAYS):
+        when = _window_dt(dtg.year + 1, jday, zulu)
+    return when
+
+
 def _parse_block(block: str, svn_to_norad: Mapping[str, int]) -> ManeuverLabel | None:
     """Parse one NANU block; return ``None`` for any notice that is not an FCSTDV maneuver."""
     if _field(block, "NANU TYPE") != "FCSTDV":
         return None
 
-    dtg = _require(block, "NANU DTG")
-    year_match = re.search(r"\b(20\d\d)\b", dtg)
-    if year_match is None:
-        raise ValueError(f"FCSTDV NANU DTG has no four-digit year: {dtg!r}")
-    year = int(year_match.group(1))
-
+    dtg = _parse_dtg(_require(block, "NANU DTG"))
     svn = _require(block, "SVN")
     prn = _field(block, "PRN")
-    window_start = _window_dt(
-        year, int(_require(block, "START JDAY")), _require(block, "START TIME ZULU")
+    window_start = _maneuver_window(
+        dtg, int(_require(block, "START JDAY")), _require(block, "START TIME ZULU")
     )
-    window_end = _window_dt(
-        year, int(_require(block, "STOP JDAY")), _require(block, "STOP TIME ZULU")
+    window_end = _maneuver_window(
+        dtg, int(_require(block, "STOP JDAY")), _require(block, "STOP TIME ZULU")
     )
     number = _field(block, "NANU NUMBER") or "?"
 
