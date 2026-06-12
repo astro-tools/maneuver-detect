@@ -1,13 +1,13 @@
 """Tests for ``maneuver_detect.benchmark.splits`` — the leak-free, byte-stable benchmark splits.
 
-The load-bearing tests run on the committed ``dataset/v0.2`` labels: that the partition leaks no
-satellite and no overlapping maneuver window across train / val / test, and that ``make_splits`` is
-byte-stable. The synthetic cases pin the overlap-component and packing behaviour directly —
-including the class-stratified packer, exercised on multi-class synthetic data where each class
-has components to distribute. (The frozen-split byte-reproduction and real-data target-ratio checks
-return with the temporal-holdout split that re-freezes a balanced ``splits.json`` — the
-window-overlap split degenerates on the dense GEO labels, fusing most of the catalogue into one
-component, so no balanced frozen split exists yet to pin.)
+Two constructions are covered. The **overlap-component** split (``make_splits``, default and
+class-stratified) holds out whole satellites. The **temporal-holdout** split
+(``make_temporal_split``) cuts the timeline into guard-separated eras with disjoint object sets, so
+a dense class spreads across train / val / test where the overlap split fuses it into one component.
+The load-bearing tests run on the committed ``dataset/v0.2`` labels — neither construction leaks a
+satellite or an overlapping window across partitions, each is byte-stable, and the frozen
+``splits.json`` (the temporal-holdout partition) reproduces byte-for-byte and is non-degenerate. The
+synthetic cases pin the overlap-component, packing, and era-assignment behaviour directly.
 """
 
 from __future__ import annotations
@@ -21,7 +21,9 @@ from maneuver_detect.benchmark.splits import (
     DEFAULT_RATIOS,
     Split,
     SplitName,
+    TemporalSplit,
     make_splits,
+    make_temporal_split,
     split_counts,
 )
 from maneuver_detect.datasets.build import labels_from_json
@@ -31,7 +33,13 @@ pytestmark = pytest.mark.benchmark
 
 _UTC = timezone.utc
 _T0 = datetime(2020, 1, 1, tzinfo=_UTC)
-_LABELS_PATH = Path(__file__).resolve().parents[1] / "dataset" / "v0.2" / "labels.json"
+_DATA_DIR = Path(__file__).resolve().parents[1] / "dataset" / "v0.2"
+_LABELS_PATH = _DATA_DIR / "labels.json"
+_SPLITS_PATH = _DATA_DIR / "splits.json"
+
+#: The D4 ±1-adjacent-gap nominal matching tolerance; the temporal split's guard comfortably exceeds
+#: it, so the envelope-overlap sweep is a faithful check of the matching-leak vector.
+_MATCH_TOL = timedelta(days=2)
 
 
 def _label(
@@ -55,6 +63,27 @@ def _label(
 
 def _committed_labels() -> list[ManeuverLabel]:
     return labels_from_json(_LABELS_PATH.read_text(encoding="utf-8"))
+
+
+def _assert_no_cross_partition_envelope_overlap(
+    grouped: dict[SplitName, list[ManeuverLabel]],
+) -> None:
+    """No label's ±tolerance match envelope overlaps a label assigned to a different partition.
+
+    A sweep over every assigned label's ``[window_start - tol, window_end + tol]`` envelope: any two
+    open, overlapping envelopes must belong to the same partition. This single check covers both the
+    overlapping-window leak vector and the clean-temporal-boundary requirement at once.
+    """
+    spans = sorted(
+        (label.window_start - _MATCH_TOL, label.window_end + _MATCH_TOL, name)
+        for name, group in grouped.items()
+        for label in group
+    )
+    open_spans: list[tuple[datetime, SplitName]] = []
+    for start, end, name in spans:
+        open_spans = [(o_end, o_name) for o_end, o_name in open_spans if o_end >= start]
+        assert all(o_name == name for _o_end, o_name in open_spans)
+        open_spans.append((end, name))
 
 
 # --- byte-stability + the definition-of-done leak-free invariants, on the real dataset ---
@@ -338,6 +367,111 @@ def test_stratified_other_seed_is_still_leak_free() -> None:
     # A different seed reorders equal-size components but partitions the same object set.
     base = make_splits(labels, stratified=True)
     assert split.train | split.val | split.test == base.train | base.val | base.test
+
+
+# --- temporal-holdout split: frozen v0.2 artifact -------------------------------------------------
+
+
+def _committed_splits_text() -> str:
+    return _SPLITS_PATH.read_text(encoding="utf-8")
+
+
+def test_temporal_split_reproduces_frozen_artifact() -> None:
+    # The committed splits.json is make_temporal_split on the committed labels, byte-for-byte (D8).
+    assert make_temporal_split(_committed_labels()).to_json() == _committed_splits_text()
+
+
+def test_frozen_artifact_round_trips() -> None:
+    committed = _committed_splits_text()
+    assert TemporalSplit.from_json(committed).to_json() == committed
+
+
+def test_frozen_split_is_non_degenerate() -> None:
+    # Every class lands in every partition — the balance the overlap split can't reach on dense GEO.
+    labels = _committed_labels()
+    grouped = make_temporal_split(labels).assign(labels)
+    for name in SplitName:
+        present = {label.orbit_class for label in grouped[name]}
+        assert present == set(OrbitClass), f"{name.value} missing {set(OrbitClass) - present}"
+
+
+# --- temporal-holdout split: leak-free + byte-stable on the real dataset --------------------------
+
+
+def test_temporal_split_is_leak_free_on_real_data() -> None:
+    labels = _committed_labels()
+    split = make_temporal_split(labels)
+    # Satellite axis: object sets pairwise disjoint.
+    assert split.train & split.val == frozenset()
+    assert split.train & split.test == frozenset()
+    assert split.val & split.test == frozenset()
+    # Temporal axis: no match envelope crosses a partition (covers the window-overlap leak too).
+    _assert_no_cross_partition_envelope_overlap(split.assign(labels))
+
+
+def test_temporal_split_is_byte_stable_on_real_data() -> None:
+    labels = _committed_labels()
+    assert make_temporal_split(labels).to_json() == make_temporal_split(labels).to_json()
+
+
+def test_temporal_other_seed_is_still_leak_free() -> None:
+    labels = _committed_labels()
+    split = make_temporal_split(labels, seed=7)
+    assert split.train & split.val == frozenset()
+    assert split.train & split.test == frozenset()
+    assert split.val & split.test == frozenset()
+    _assert_no_cross_partition_envelope_overlap(split.assign(labels))
+
+
+# --- temporal-holdout split: assignment / serialisation behaviour ---------------------------------
+
+
+def test_temporal_assign_drops_guard_band_and_wrong_era_labels() -> None:
+    labels = _committed_labels()
+    split = make_temporal_split(labels)
+    train_obj = min(split.train)
+    # A train object's label in the guard band around cut1 — dropped (it straddles the boundary).
+    guard_label = _label(train_obj, split.cut1, split.cut1 + timedelta(hours=1))
+    # The same object's label in the test era (after cut2) — dropped, keeping its era novel.
+    late = split.cut2 + split.guard + timedelta(days=10)
+    wrong_era_label = _label(train_obj, late, late + timedelta(hours=1))
+    grouped = split.assign([*labels, guard_label, wrong_era_label])
+    for name in SplitName:
+        assert guard_label not in grouped[name]
+        assert wrong_era_label not in grouped[name]
+
+
+def test_temporal_from_json_rejects_non_temporal() -> None:
+    # An object-set Split serialises without a "kind" marker, so it can't parse as temporal.
+    with pytest.raises(ValueError):
+        TemporalSplit.from_json(make_splits(_committed_labels()).to_json())
+
+
+def test_temporal_empty_labels_rejected() -> None:
+    with pytest.raises(ValueError):
+        make_temporal_split([])
+
+
+def test_temporal_synthetic_multi_band_is_leak_free() -> None:
+    # Three well-separated year-bands per class, cuts placed between bands, so every class reaches
+    # every partition; robust to the exact cut placement.
+    labels: list[ManeuverLabel] = []
+    norad = 1000
+    for orbit_class in OrbitClass:
+        for band_start in (2000, 2010, 2020):
+            for k in range(4):
+                start = datetime(band_start + 1, 6, 1, tzinfo=_UTC) + timedelta(days=20 * k)
+                labels.append(
+                    _label(norad, start, start + timedelta(hours=1), orbit_class=orbit_class)
+                )
+                norad += 1
+    split = make_temporal_split(labels, quantiles=(0.34, 0.67))
+    assert split.train and split.val and split.test  # every partition populated
+    assert split.train & split.val == frozenset()
+    assert split.train & split.test == frozenset()
+    assert split.val & split.test == frozenset()
+    _assert_no_cross_partition_envelope_overlap(split.assign(labels))
+    assert make_temporal_split(labels, quantiles=(0.34, 0.67)).to_json() == split.to_json()
 
 
 # --- input validation -----------------------------------------------------------------------------

@@ -14,7 +14,7 @@ For each version `vX.Y/`:
 | `recipe.json` | The pinned catalogue — every object's NORAD id, orbit class, label source, and the per-object fetch parameters. | Public reference facts. |
 | `labels.json` | The parsed maneuver labels (epoch / window / type / Δv). | DORIS/IDS open data; GPS NANUs are US-Government public domain; Galileo NAGUs are GSC reuse-with-attribution (© EU); GEO labels are self-derived (authored). |
 | `manifest.json` | One SHA-256 per reconstructed series — the integrity check. | A one-way digest; carries no element data. |
-| `splits.json` | The frozen, leak-free train/val/test partition — present once a version's benchmark split is frozen. | Authored. |
+| `splits.json` | The frozen, leak-free **temporal-holdout** train/val/test partition — novel satellites scored in novel eras (the timeline cut into three guard-separated bands, each a disjoint object set). Present once a version's benchmark split is frozen. | Authored. |
 
 The **raw element-series is never shipped.** Space-Track's terms of use reach derived analysis, so
 the multi-year history is re-fetched locally from each user's own account rather than redistributed
@@ -57,7 +57,9 @@ reconstruction diverged. Pass `--recipe-version 0.1.0` to rebuild the frozen v0.
 
 The GPS NANU and Galileo NAGU archives are crawled over a year window — `--nanu-start-year`
 (default 2016) and `--nanu-end-year` (default: the current year) — so `labels.json` is a snapshot of
-that window. `splits.json` is regenerated from `labels.json` by `make_splits` (no series needed).
+that window. `splits.json` is regenerated from `labels.json` by `make_temporal_split` (no series
+needed); the dense GEO labels collapse the plain satellite-overlap split into one component, so the
+frozen v0.2 partition is the temporal-holdout variant, which stays leak-free in both dimensions.
 
 The raw fetched series is held only in the local cache; it is never written into this directory.
 

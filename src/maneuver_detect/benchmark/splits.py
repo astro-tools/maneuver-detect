@@ -33,19 +33,23 @@ import hashlib
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 
 from maneuver_detect.datasets.catalogue import DATASET_VERSION
 from maneuver_detect.labels.record import ManeuverLabel, OrbitClass
 
 __all__ = [
+    "DEFAULT_ERA_QUANTILES",
     "DEFAULT_RATIOS",
     "DEFAULT_SEED",
+    "DEFAULT_TEMPORAL_GUARD",
     "Split",
     "SplitCounts",
     "SplitName",
+    "TemporalSplit",
     "make_splits",
+    "make_temporal_split",
     "split_counts",
 ]
 
@@ -443,3 +447,233 @@ def split_counts(split: Split, labels: Sequence[ManeuverLabel]) -> SplitCounts:
         for name in SplitName
     }
     return SplitCounts(per_split=per_split)
+
+
+# --- temporal-holdout split (novel-satellite x novel-era) -----------------------------------------
+#
+# The overlap-component split holds out whole satellites but keeps every partition in the same time
+# range, so on a dense catalogue (same-era GEO station-keeping) their windows overlap and fuse into
+# one component — no packing can then distribute a class across val/test. The temporal-holdout split
+# is a different *construction*: it cuts the timeline into three guard-separated eras and gives each
+# a disjoint object set, so leak-freeness holds in both dimensions (no satellite, no overlapping
+# window across partitions — D7) *and* a dense class is spread across the splits.
+
+#: Quantiles of the label timeline at which the two era cuts (train | val | test) are placed.
+DEFAULT_ERA_QUANTILES: tuple[float, float] = (0.70, 0.85)
+
+#: Half-width of the band dropped around each era cut. Comfortably exceeds the D4 ≈±2-day matching
+#: tolerance, so no detection can match a label across the boundary — the temporal half of D7.
+DEFAULT_TEMPORAL_GUARD: timedelta = timedelta(days=7)
+
+#: Which era each partition draws from: train = oldest, val = middle, test = newest (held-out era).
+_PARTITION_ERA: dict[SplitName, int] = {SplitName.TRAIN: 0, SplitName.VAL: 1, SplitName.TEST: 2}
+
+
+def _era_of(epoch: datetime, cut1: datetime, cut2: datetime, guard: timedelta) -> int | None:
+    """The era index (0/1/2) ``epoch`` falls in, or ``None`` if it lands in a guard band."""
+    if epoch < cut1 - guard:
+        return 0
+    if cut1 + guard < epoch < cut2 - guard:
+        return 1
+    if epoch > cut2 + guard:
+        return 2
+    return None
+
+
+@dataclass(frozen=True)
+class TemporalSplit:
+    """A leak-free *temporal-holdout* partition — novel satellites scored in novel eras.
+
+    The timeline is cut into three guard-separated eras (train = oldest, val = middle, test =
+    newest) and each object is assigned to exactly one partition, contributing only its labels in
+    that partition's era. Object sets are disjoint (no satellite crosses) and the eras are
+    guard-separated (no maneuver window — nor its ±tolerance match envelope — crosses), so the split
+    is leak-free in both the satellite and the time dimension (D7) and byte-stable per seed (D8).
+
+    Attributes:
+        dataset_version: The dataset version the split was computed for (lockstep with the
+            manifest).
+        seed: The seed the assignment was generated under (orders equal-weight objects).
+        cut1: The train | val era boundary (the guard band straddles it).
+        cut2: The val | test era boundary (the guard band straddles it).
+        guard: Half-width of the dropped band around each cut (≥ the matching tolerance).
+        train: NORAD ids assigned to train (scored on their pre-``cut1`` labels).
+        val: NORAD ids assigned to val (scored on their ``cut1``..``cut2`` labels).
+        test: NORAD ids assigned to test (scored on their post-``cut2`` labels).
+    """
+
+    dataset_version: str
+    seed: int
+    cut1: datetime
+    cut2: datetime
+    guard: timedelta
+    train: frozenset[int]
+    val: frozenset[int]
+    test: frozenset[int]
+
+    def members(self, split: SplitName) -> frozenset[int]:
+        """The NORAD ids assigned to ``split``."""
+        return {SplitName.TRAIN: self.train, SplitName.VAL: self.val, SplitName.TEST: self.test}[
+            split
+        ]
+
+    def by_norad(self) -> dict[int, SplitName]:
+        """Map each assigned NORAD id to its partition."""
+        return {norad_id: name for name in SplitName for norad_id in self.members(name)}
+
+    def era_of(self, epoch: datetime) -> int | None:
+        """The era index (0/1/2) ``epoch`` falls in, or ``None`` if it lands in a guard band."""
+        return _era_of(epoch, self.cut1, self.cut2, self.guard)
+
+    def assign(self, labels: Sequence[ManeuverLabel]) -> dict[SplitName, list[ManeuverLabel]]:
+        """Group ``labels`` by partition, keeping only those in the object's assigned era.
+
+        A label is kept when its object is assigned to a partition *and* the whole label window lies
+        within that partition's era (guard bands excluded). Labels whose object is unassigned, or
+        whose window falls in another era or a guard band, are dropped — they cannot attach to a
+        partition without leaking a satellite or crossing the temporal boundary.
+        """
+        grouped: dict[SplitName, list[ManeuverLabel]] = {name: [] for name in SplitName}
+        membership = self.by_norad()
+        for label in labels:
+            if label.norad_id is None:
+                continue
+            name = membership.get(label.norad_id)
+            if name is None:
+                continue
+            start_era = self.era_of(label.window_start)
+            end_era = self.era_of(label.window_end)
+            if start_era is not None and start_era == end_era == _PARTITION_ERA[name]:
+                grouped[name].append(label)
+        return grouped
+
+    def to_json(self) -> str:
+        """Serialise to canonical, NORAD-sorted JSON (a stable, committable artifact)."""
+        payload = {
+            "dataset_version": self.dataset_version,
+            "kind": "temporal",
+            "seed": self.seed,
+            "cut1": self.cut1.isoformat(),
+            "cut2": self.cut2.isoformat(),
+            "guard_seconds": int(self.guard.total_seconds()),
+            "splits": {name.value: sorted(self.members(name)) for name in SplitName},
+        }
+        return json.dumps(payload, indent=2, sort_keys=True) + "\n"
+
+    @classmethod
+    def from_json(cls, text: str) -> TemporalSplit:
+        """Parse a temporal split from :meth:`to_json` output."""
+        data = json.loads(text)
+        if data.get("kind") != "temporal":
+            raise ValueError(f"not a temporal split (kind={data.get('kind')!r})")
+        splits = data["splits"]
+        return cls(
+            dataset_version=str(data["dataset_version"]),
+            seed=int(data["seed"]),
+            cut1=datetime.fromisoformat(str(data["cut1"])),
+            cut2=datetime.fromisoformat(str(data["cut2"])),
+            guard=timedelta(seconds=int(data["guard_seconds"])),
+            train=frozenset(int(n) for n in splits[SplitName.TRAIN.value]),
+            val=frozenset(int(n) for n in splits[SplitName.VAL.value]),
+            test=frozenset(int(n) for n in splits[SplitName.TEST.value]),
+        )
+
+
+def _quantile_epochs(
+    labels: Sequence[ManeuverLabel], quantiles: tuple[float, float]
+) -> tuple[datetime, datetime]:
+    """The label-timeline epochs at the two ``quantiles`` — the default era cuts."""
+    epochs = sorted(label.epoch for label in labels if label.norad_id is not None)
+    if not epochs:
+        raise ValueError("cannot place era cuts on an empty label set")
+    q1, q2 = quantiles
+    cut1 = epochs[min(int(q1 * len(epochs)), len(epochs) - 1)]
+    cut2 = epochs[min(int(q2 * len(epochs)), len(epochs) - 1)]
+    if cut1 >= cut2:
+        raise ValueError(
+            f"era cuts must be increasing — quantiles {quantiles!r} collapse on this label set"
+        )
+    return cut1, cut2
+
+
+def make_temporal_split(
+    labels: Sequence[ManeuverLabel],
+    *,
+    dataset_version: str = DATASET_VERSION,
+    seed: int = DEFAULT_SEED,
+    ratios: tuple[float, float, float] = DEFAULT_RATIOS,
+    quantiles: tuple[float, float] = DEFAULT_ERA_QUANTILES,
+    guard: timedelta = DEFAULT_TEMPORAL_GUARD,
+) -> TemporalSplit:
+    """Build a leak-free temporal-holdout :class:`TemporalSplit` from ``labels``.
+
+    The timeline is cut at the two ``quantiles`` of the label epochs into train | val | test eras
+    (oldest → newest), each cut fenced by a ``guard`` band. Every object is assigned to one
+    partition — among the eras it actually has labels in — greedily toward the per-class ``ratios``
+    (so each class lands in every partition the catalogue allows), with ``seed`` ordering
+    equal-weight objects for a byte-stable result (D8). An object contributes only its labels in its
+    partition's era; the rest are dropped to keep both the satellite and the era novel. Labels with
+    no ``norad_id`` are ignored.
+    """
+    if len(ratios) != 3:
+        raise ValueError(f"ratios must have three entries, got {len(ratios)}")
+    if any(ratio < 0 for ratio in ratios) or sum(ratios) <= 0:
+        raise ValueError(f"ratios must be non-negative and sum positive, got {ratios!r}")
+
+    cut1, cut2 = _quantile_epochs(labels, quantiles)
+
+    # Per object: the eligible label count in each era (only whole-window-in-one-era labels count).
+    per_object: dict[int, dict[int, int]] = {}
+    orbit_class: dict[int, OrbitClass] = {}
+    for label in labels:
+        if label.norad_id is None:
+            continue
+        start_era = _era_of(label.window_start, cut1, cut2, guard)
+        end_era = _era_of(label.window_end, cut1, cut2, guard)
+        if start_era is None or start_era != end_era:
+            continue
+        per_object.setdefault(label.norad_id, {})[start_era] = (
+            per_object.get(label.norad_id, {}).get(start_era, 0) + 1
+        )
+        orbit_class[label.norad_id] = label.orbit_class
+
+    ratios_by_name = dict(zip(SplitName, ratios, strict=True))
+
+    def sort_key(norad_id: int) -> tuple[int, int, str]:
+        eras = per_object[norad_id]
+        # Most constrained first (fewest eligible eras), then largest footprint, then seeded.
+        return (len(eras), -sum(eras.values()), _tiebreak(seed, norad_id))
+
+    by_class: dict[OrbitClass, list[int]] = {}
+    for norad_id, oc in orbit_class.items():
+        by_class.setdefault(oc, []).append(norad_id)
+
+    assigned: dict[SplitName, set[int]] = {name: set() for name in SplitName}
+    for oc in OrbitClass:
+        placed: dict[SplitName, int] = {name: 0 for name in SplitName}
+        total = 0
+        for norad_id in sorted(by_class.get(oc, []), key=sort_key):
+            eras = per_object[norad_id]
+            best: SplitName | None = None
+            best_deficit = float("-inf")
+            for name in SplitName:  # canonical order → exact ties favour TRAIN > VAL > TEST
+                if _PARTITION_ERA[name] not in eras:
+                    continue
+                deficit = ratios_by_name[name] * total - placed[name]
+                if deficit > best_deficit:
+                    best_deficit, best = deficit, name
+            assert best is not None  # every object in per_object has ≥1 eligible era
+            assigned[best].add(norad_id)
+            placed[best] += eras[_PARTITION_ERA[best]]
+            total += eras[_PARTITION_ERA[best]]
+
+    return TemporalSplit(
+        dataset_version=dataset_version,
+        seed=seed,
+        cut1=cut1,
+        cut2=cut2,
+        guard=guard,
+        train=frozenset(assigned[SplitName.TRAIN]),
+        val=frozenset(assigned[SplitName.VAL]),
+        test=frozenset(assigned[SplitName.TEST]),
+    )
