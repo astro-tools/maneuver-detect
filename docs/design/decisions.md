@@ -124,9 +124,13 @@ encoding:** `Δt` stays in the input (needed for step-rate + secular detrending)
 separable, and rank-AUC-invariant so not removable by clipping/time2vec/daily-regularization); the
 benchmark therefore **reports a timing-only baseline as the "cheating floor" submissions must beat** and
 keeps the headline metric as **recall over the above-floor population** (D4/D7), where the element signal
-dominates. **Normalisation:** per-class robust (median/IQR) per channel, train-split statistics only;
+dominates. **Element deltas are fed signed** — the maneuver signal is in the step *magnitude* (a burn raises or
+lowers `a`/`i`/Ω, so a linear readout on signed deltas separates nothing; it is `|Δ|` that scores), but
+the non-linear model recovers magnitude itself and the sign carries burn direction for the D5 Δv-type
+classification. **Normalisation:** per-class robust (median/IQR) per channel, train-split statistics only;
 secular drift (J2 nodal regression / apsidal precession) removed by a two-sided local-linear fit before
-the delta; angles carried as the eccentricity vector `(h, k)` + unwrapped Ω (no wrap). The full tensor
+the delta (computed once per object series, not per gap); angles carried as the eccentricity vector
+`(h, k)` + unwrapped Ω (no wrap). The full tensor
 contract (channels, masking, windowing, shape) is specified in
 [`spikes/v5-irregular-sampling-encoding.md`](spikes/v5-irregular-sampling-encoding.md) — the feature layer
 implements it verbatim.

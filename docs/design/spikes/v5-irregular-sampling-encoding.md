@@ -83,6 +83,14 @@ the same effect #37 found when node/ecc were poor trigger channels. That is an a
 exposes every channel faithfully; how the model weights them is a downstream choice the per-type floor
 already informs.
 
+**The maneuver signal lives in the *magnitude* of the element step, not its sign** — a burn can raise or
+lower `a` / `i` / Ω, so quiet gaps and maneuver gaps both centre a *signed* delta near zero and a linear
+separator finds nothing (the in-track AUC above collapses to chance on signed deltas; it is `|Δa|` that
+scores 0.82). The proof's probe therefore scores `|Δelement|`. The frozen contract nonetheless feeds the
+model **signed** deltas: a non-linear BiLSTM/transformer recovers the magnitude itself, and the sign
+carries the burn *direction* the Δv-type classification (D5) needs. Magnitude-vs-sign is thus a readout
+choice — the encoding carries both.
+
 ### 3. The timing leak is real, modest, and structural — not "trivially separable"
 
 Post-maneuver re-acquisition gaps run long, so `Δt` alone carries a **measurable but weak** correlation
@@ -140,8 +148,9 @@ per-gap maneuver target attaches to that transition, D4). For object class *c* �
 1. *Element levels* at the token's epoch — `a` (km), `e`, `sin i`, `cos i`, `h = e·cos ω`,
    `k = e·sin ω`, and the secular-detrended residual of each (the level the local-linear fit predicts is
    subtracted). Levels give absolute context; residuals give the anomaly.
-2. *Element deltas across the gap to the previous token* — the signed level shift of each detrended
-   channel above. The model learns magnitude/sign; the signal is in the magnitude (Finding 2).
+2. *Element deltas across the gap to the previous token* — the **signed** level shift of each detrended
+   channel above. The maneuver signal is in the *magnitude* of the step (Finding 2), but signed is fed so
+   the sign carries burn direction for the D5 Δv-type classification; the model recovers magnitude itself.
 3. *Timing block* — `time2vec(Δt)`: `[Δt_clip / scale, {sin, cos}(2π Δt / P_j) for j=1..m]` with `Δt`
    clipped at the saturation cap (D11.2). Bounded and smooth.
 4. *Mask / validity* — a real-elset bit (always 1 here — the deltas encoding imputes no rows, unlike
@@ -155,6 +164,11 @@ rule.
 
 **Shape.** `(batch, W, C)` for the channel count *C* above, plus a `(batch, W)` target and a `(batch, W)`
 validity mask; class *c* selects the normalisation statistics, not a separate tensor.
+
+**Implementation note.** Compute the secular detrend (and the per-channel normalisation statistics)
+**once per object series**, then read deltas off the precomputed residual — not per candidate gap.
+Recomputing the local-linear/rolling detrend inside a per-gap loop is `O(n²)` in the series length and
+needlessly slow on the multi-thousand-elset histories (a trap hit and fixed while writing the proof).
 
 ## Reproducibility
 
