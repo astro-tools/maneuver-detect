@@ -1,7 +1,9 @@
 {
+  "ci_level": 0.95,
   "operating_point": 1.0,
   "per_class": {
     "GEO": {
+      "ci_level": 0.95,
       "confusion": {
         "cross-track": {
           "cross-track": 0,
@@ -30,24 +32,36 @@
         {
           "fa_per_sat_year": 0.3,
           "precision": null,
-          "recall": null
+          "precision_ci": null,
+          "recall": null,
+          "recall_ci": null
         },
         {
           "fa_per_sat_year": 1.0,
           "precision": null,
-          "recall": null
+          "precision_ci": null,
+          "recall": null,
+          "recall_ci": null
         },
         {
           "fa_per_sat_year": 3.0,
           "precision": 0.0,
-          "recall": null
+          "precision_ci": [
+            0.0,
+            0.7934506856227626
+          ],
+          "recall": null,
+          "recall_ci": null
         }
       ],
       "precision": null,
+      "precision_ci": null,
       "recall": null,
+      "recall_ci": null,
       "sat_years": 0.5
     },
     "LEO": {
+      "ci_level": 0.95,
       "confusion": {
         "cross-track": {
           "cross-track": 0,
@@ -76,24 +90,57 @@
         {
           "fa_per_sat_year": 0.3,
           "precision": 1.0,
-          "recall": 0.3333333333333333
+          "precision_ci": [
+            0.20654931437723745,
+            1.0
+          ],
+          "recall": 0.3333333333333333,
+          "recall_ci": [
+            0.06149194472039632,
+            0.7923403991979523
+          ]
         },
         {
           "fa_per_sat_year": 1.0,
           "precision": 0.6666666666666666,
-          "recall": 0.6666666666666666
+          "precision_ci": [
+            0.20765960080204782,
+            0.9385080552796038
+          ],
+          "recall": 0.6666666666666666,
+          "recall_ci": [
+            0.20765960080204782,
+            0.9385080552796038
+          ]
         },
         {
           "fa_per_sat_year": 3.0,
           "precision": 0.6666666666666666,
-          "recall": 0.6666666666666666
+          "precision_ci": [
+            0.20765960080204782,
+            0.9385080552796038
+          ],
+          "recall": 0.6666666666666666,
+          "recall_ci": [
+            0.20765960080204782,
+            0.9385080552796038
+          ]
         }
       ],
       "precision": 0.6666666666666666,
+      "precision_ci": [
+        0.20765960080204782,
+        0.9385080552796038
+      ],
       "recall": 0.6666666666666666,
+      "recall_ci": [
+        0.20765960080204782,
+        0.9385080552796038
+      ],
       "sat_years": 2.0
     },
     "MEO": {
+      "ci_level": 0.95,
       "confusion": {
         "cross-track": {
           "cross-track": 0,
@@ -122,21 +169,53 @@
         {
           "fa_per_sat_year": 0.3,
           "precision": 1.0,
-          "recall": 1.0
+          "precision_ci": [
+            0.20654931437723745,
+            1.0
+          ],
+          "recall": 1.0,
+          "recall_ci": [
+            0.20654931437723745,
+            1.0
+          ]
         },
         {
           "fa_per_sat_year": 1.0,
           "precision": 1.0,
-          "recall": 1.0
+          "precision_ci": [
+            0.20654931437723745,
+            1.0
+          ],
+          "recall": 1.0,
+          "recall_ci": [
+            0.20654931437723745,
+            1.0
+          ]
         },
         {
           "fa_per_sat_year": 3.0,
           "precision": 1.0,
-          "recall": 1.0
+          "precision_ci": [
+            0.20654931437723745,
+            1.0
+          ],
+          "recall": 1.0,
+          "recall_ci": [
+            0.20654931437723745,
+            1.0
+          ]
         }
       ],
       "precision": 1.0,
+      "precision_ci": [
+        0.20654931437723745,
+        1.0
+      ],
       "recall": 1.0,
+      "recall_ci": [
+        0.20654931437723745,
+        1.0
+      ],
       "sat_years": 1.0
     }
   },

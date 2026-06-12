@@ -42,6 +42,10 @@ inter-elset gap**, not a continuous timestamp.
   per satellite-year**. The **primary operating point is 1 FA/sat-year**, and a **P/R curve** is reported over
   a sweep (0.3 / 1 / 3 FA/sat-year).
 - **Headline number: recall at 1 FA/sat-year over the above-floor population, per class.**
+- **Per-class confidence intervals.** Recall and precision carry a Wilson score confidence interval (95%
+  by default), so a per-class number estimated from few test objects is read with its sampling
+  uncertainty rather than as a point fact — the interval of the *estimate*, distinct from a detector's
+  per-detection `confidence`.
 - **Per-class type confusion** (in-track / cross-track / radial) over the matched above-floor detections.
 - **Δv error** where Δv ground truth exists (LEO altimetry, via DORIS): reported per class, expected within
   about ±25% above the floor; not scored below the floor or for radial-dominated maneuvers.
