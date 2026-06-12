@@ -49,6 +49,8 @@ maneuver predictions, **GPS NANUs FCSTDV** (MEO, US-Government public domain, ep
 NORAD via the CelesTrak crosswalk). The **Shorten benchmark** is a **dev-only cross-check** (unlicensed).
 **SpotGEO rejected** (optical object-detection, not maneuver labels). **v0.1 class scope: LEO (primary,
 Δv-labelled) + MEO (epoch-only) + GEO (best-effort, epoch-only); HEO deferred** (sparse; a later add).
+*v0.2 extends this source set — see **D13** (Galileo NAGU added for MEO; a BeiDou-NABU recipe path for
+GEO; GLONASS excluded on terms).*
 
 ## D4 — Labelling granularity + matching tolerance + detectability floor (V3)
 
@@ -99,7 +101,9 @@ recipe, features derived from open data) **CC-BY-4.0**; pass-through TraCSS data
 Space-Track is not redistributed**. **Model weights** MIT or CC-BY-4.0; foundation-model fine-tunes
 inherit their base (Chronos / TimesFM Apache-2.0). All **runtime deps permissive**. The label sources are
 open / US-gov public domain (V2), so the dataset licence is **not forced restrictive**; the Shorten labels
-are unlicensed → dev-only.
+are unlicensed → dev-only. *v0.2 (D13) adds two attribution obligations that stack per source under the
+CC-BY-4.0 artifacts: **© EU** for Galileo NAGUs and NOAA credit for any GOES labels; GLONASS is excluded
+on terms so its restrictions never attach.*
 
 ## D10 — Decoupling guarantee
 
@@ -170,8 +174,38 @@ hosting/integrity/budget rationale is in
 
 ---
 
+## D13 — Expanded label-source set for v0.2 dataset growth (V2 follow-up) — *v0.2*
+
+The ratified source set the v0.2 dataset-growth pass draws from, extending **D3** from the V2 follow-up
+survey of GEO + non-GPS-GNSS sources. Resolves the "no public GEO maneuver-label source" gap and the V2
+"survey/defer" open item on other GNSS notices.
+
+- **MEO — add Galileo NAGUs (`PLN_MANV`).** Public, no-auth, machine-ingestible (per-notice `.txt` with
+  `START`/`END DATE EVENT (UTC)` + GSAT id + SVID); GSAT → NORAD via the CelesTrak Galileo crosswalk.
+  Terms are an **attribution-required reuse grant (© EU)** — redistribution-clean, so the **labels are
+  shipped** (D2). Adds a **second, independent MEO operator** beyond GPS (~28 GSAT SVs), epoch-only (no
+  Δv). **GLONASS is excluded:** the IAC/TsNIIMash "Rules for the use of information" cap public internet
+  reproduction at **150 characters** without consent — more restrictive than Space-Track, fails D2.
+- **GEO — best-effort GO via a BeiDou-NABU recipe.** CSNO's NABUs are machine-ingestible (per-notice
+  `.zip` at a stable URL), UTC-precise, and **name GEO/IGSO satellites** — the only operator-announced
+  GEO maneuver feed. csno-tarc.cn states **no open licence**, so BeiDou is handled by the **D2
+  recipe-first model** (ship the fetch recipe + parser + hash manifest, never the redistributed labels —
+  the Space-Track pattern), not shipped data. The exact `NABU TYPE` string for an orbit maneuver is
+  **confirmed at ingest** (the surveyed sample was a PRN reallocation). **Fallbacks:** public-domain NOAA
+  GOES messages (clean but sparse, free-text) and self-labelled longitude-shift inspection on
+  reconstructed GEO series; Shorten Fengyun stays dev-only. GEO stays **epoch-only**.
+- **Class scope (D3) unchanged otherwise:** LEO primary (Δv-labelled), HEO deferred. **Licence (D9):**
+  attribution stacks per source (© EU for Galileo, NOAA for GOES); no new restriction attaches (GLONASS
+  excluded; BeiDou contributes a recipe, not bytes). **No openly-licensed GEO maneuver *benchmark*
+  exists** to redistribute — the BeiDou recipe + self-labelled fallbacks are the GEO path.
+
+Detail in [`spikes/v2-followup-label-sources.md`](spikes/v2-followup-label-sources.md).
+
+---
+
 *Sources: [`spikes/v1-dataset-redistribution.md`](spikes/v1-dataset-redistribution.md),
 [`spikes/v2-label-sources.md`](spikes/v2-label-sources.md),
+[`spikes/v2-followup-label-sources.md`](spikes/v2-followup-label-sources.md),
 [`spikes/v3-detectability-floor.md`](spikes/v3-detectability-floor.md),
 [`spikes/v4-dv-inversion.md`](spikes/v4-dv-inversion.md),
 [`spikes/v5-irregular-sampling-encoding.md`](spikes/v5-irregular-sampling-encoding.md),
