@@ -45,6 +45,8 @@ __all__ = [
     "EARTH_J2",
     "EARTH_MU_KM3_S2",
     "EARTH_RADIUS_KM",
+    "ORBIT_CLASS_GEO_MIN_A_KM",
+    "ORBIT_CLASS_LEO_MAX_A_KM",
     "ElementStep",
     "Inversion",
     "Orbit",
@@ -57,6 +59,7 @@ __all__ = [
     "j2_secular_rates",
     "local_step",
     "mean_motion_rad_s",
+    "orbit_class_of",
     "orbital_speed_km_s",
     "semi_major_axis_km",
 ]
@@ -448,6 +451,28 @@ def _line_at(times: Sequence[float], values: Sequence[float], at: float) -> floa
     slope = (count * sum_tv - sum_t * sum_v) / denom
     intercept = (sum_v - slope * sum_t) / count
     return slope * at + intercept
+
+
+#: Semi-major-axis cut points (km) for the coarse orbit-class assignment that selects the nominal
+#: detectability floor and the per-class feature normalisation statistics: LEO below ~2000 km
+#: altitude, GEO near the geostationary radius, MEO between (the GPS / Galileo constellations at
+#: ~26 560 / ~29 600 km land here).
+ORBIT_CLASS_LEO_MAX_A_KM = 8378.0
+ORBIT_CLASS_GEO_MIN_A_KM = 35000.0
+
+
+def orbit_class_of(semi_major_axis_km: float) -> OrbitClass:
+    """The coarse orbit class (LEO / MEO / GEO) of a representative semi-major axis (km).
+
+    A single seam both the detector (selecting the nominal Δv floor) and the feature layer
+    (selecting per-class normalisation statistics) read, so the class boundaries are defined once.
+    The cuts are :data:`ORBIT_CLASS_LEO_MAX_A_KM` and :data:`ORBIT_CLASS_GEO_MIN_A_KM`.
+    """
+    if semi_major_axis_km < ORBIT_CLASS_LEO_MAX_A_KM:
+        return OrbitClass.LEO
+    if semi_major_axis_km >= ORBIT_CLASS_GEO_MIN_A_KM:
+        return OrbitClass.GEO
+    return OrbitClass.MEO
 
 
 #: Nominal per-class detectability floor for the Δv inversion, m/s (D4/D5). LEO and GEO are the

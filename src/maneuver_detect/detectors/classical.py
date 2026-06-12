@@ -54,7 +54,6 @@ import numpy.typing as npt
 import pandas as pd
 
 from maneuver_detect.detectors.base import Detector
-from maneuver_detect.labels.record import OrbitClass
 from maneuver_detect.physics import (
     ElementStep,
     Inversion,
@@ -62,6 +61,7 @@ from maneuver_detect.physics import (
     detectability_floor_ms,
     invert,
     local_step,
+    orbit_class_of,
 )
 from maneuver_detect.schema import COLUMNS, Maneuver, ManeuverType, empty_frame, to_frame
 
@@ -83,12 +83,6 @@ _REQUIRED_COLUMNS: tuple[str, ...] = (
     "raan",
     "arg_perigee",
 )
-
-# Semi-major-axis cut points (km) for the coarse orbit-class assignment that selects the nominal
-# detectability floor: LEO below ~2000 km altitude, GEO near the geostationary radius, MEO between
-# (the GPS constellation at ~26 560 km lands here).
-_LEO_MAX_A_KM = 8378.0
-_GEO_MIN_A_KM = 35000.0
 
 # A floor on the inter-elset spacing (days) used in the smoother's per-day trend, so a duplicate or
 # near-duplicate epoch that survived cleaning cannot blow up the trend update.
@@ -242,7 +236,7 @@ class ClassicalDetector(Detector):
             if finite.empty:
                 raise ValueError("cannot compute a floor for an empty or all-non-finite history")
             median_a = float(np.median(finite["semi_major_axis"].to_numpy(dtype=float)))
-            nominal = detectability_floor_ms(_orbit_class_of(median_a))
+            nominal = detectability_floor_ms(orbit_class_of(median_a))
             return dict.fromkeys(ManeuverType, nominal)
         return self._object_floors(model)
 
@@ -378,7 +372,7 @@ class ClassicalDetector(Detector):
         """
         orbit = _median_orbit(model)
         snr = self.threshold
-        nominal = detectability_floor_ms(_orbit_class_of(orbit.semi_major_axis_km))
+        nominal = detectability_floor_ms(orbit_class_of(orbit.semi_major_axis_km))
 
         in_track = invert(ElementStep(snr * model.scale_a, 0.0, 0.0, 0.0), orbit).delta_v_ms
         # Cross-track shows in both inclination and node; the most sensitive of the two sets the
@@ -626,15 +620,6 @@ def _reference_orbit(
         inclination_rad=inclination,
         arg_perigee_rad=float(level_argp_deg[pre]) * _DEG_TO_RAD,
     )
-
-
-def _orbit_class_of(a_km: float) -> OrbitClass:
-    """Assign the coarse orbit class from a representative semi-major axis (km)."""
-    if a_km < _LEO_MAX_A_KM:
-        return OrbitClass.LEO
-    if a_km >= _GEO_MIN_A_KM:
-        return OrbitClass.GEO
-    return OrbitClass.MEO
 
 
 def _epochs_to_days(epochs: list[pd.Timestamp]) -> FloatArray:
