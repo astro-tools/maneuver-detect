@@ -1,4 +1,4 @@
-# maneuver-detect — design decisions (D1–D11)
+# maneuver-detect — design decisions (D1–D12)
 
 The frozen decision record, consolidating the prerequisite spikes (under [`spikes/`](spikes/)) and the
 project charter. **No implementation lands until it matches this record.** Each decision states the call
@@ -7,7 +7,8 @@ and its rationale/source. The detailed, implementable benchmark contract lives i
 
 **D1–D10** are the v0.1 freeze (V1–V4): D2–D5 lifted from the merged spike records, D1 and D6–D10 from
 the charter and the spike implications. **D11** is the first v0.2 decision — the irregular-sampling input
-contract from V5, gating the learned baselines.
+contract from V5, gating the learned baselines. **D12** settles V7 — leaderboard integrity and the
+single-GPU training budget — gating the public leaderboard Space and the baseline training.
 
 ---
 
@@ -104,9 +105,9 @@ are unlicensed → dev-only.
 
 **GMAT-free** — no GMAT / gmatpy at runtime, in tests, or as a dependency; no setup-gmat. The
 foundation-model stack is an optional **`[foundation]`** extra (the base install excludes it). The charter
-validations **V6 (foundation-model applicability) and V7 (leaderboard integrity + compute budget) are
-deferred to their v0.2 / v0.3 milestones**; **V5 (irregular-sampling model input) is resolved at v0.2 by
-D11.**
+validation **V6 (foundation-model applicability) is deferred to its v0.3 milestone**; **V5
+(irregular-sampling model input) and V7 (leaderboard integrity + compute budget) are resolved at v0.2 by
+D11 and D12.**
 
 ---
 
@@ -137,9 +138,42 @@ implements it verbatim.
 
 ---
 
+## D12 — Leaderboard integrity + single-GPU compute budget (V7) — *v0.2*
+
+The public leaderboard can be hosted **safely** and the v0.2 baselines are **cheap to train**, from
+the V7 dry-run of the real scorer against hidden labels plus a `6·N·T` compute estimate.
+**Hosting:** a **Gradio Space on the free Hugging Face CPU tier** — scoring is pure element-arithmetic
+(D4 matching + per-class counts), CPU-cheap and deterministic (D8), so the board needs **no GPU**; the
+only GPU spend in the project is offline baseline training. Hidden test labels + exposure live as a
+**Space secret / private HF Dataset**, never in any public file or response; submissions are
+`predictions.json` (canonical maneuver records, `schema.py`); the board persists to a public HF
+Dataset, ranked by headline recall. **Integrity** closes both leak surfaces: the **response is
+aggregate-only** (per-class above-floor recall at the operating point + the published D11 timing-only
+"cheating floor" — never the per-label match table), and the **submission is fixed-schema**
+(`read_predictions` rejects any non-prediction payload, so a submission cannot carry a query) — both
+proven against the shipped scorer. **Anti-overfitting:** **hidden labels + a public/private split**
+(the live board scores a public subset; the **final ranking is recomputed on a held-back private
+subset revealed only at release**, the Kaggle pattern) + a **rate limit of 5 scored submissions per
+user per UTC day** on the public split, keyed to the HF user id. A single-detection probing oracle is
+real but costs one submission per candidate gap (≈ `ceil(G/R)` submission-days, anomalous-volume
+detectable) and only ever touches the public split — the private split decides the ranking.
+**Submission cadence: 5/user/day public, private scored once at release.** **Compute budget:** both
+baselines are small (transformer `N ≈ 10⁷`, BiLSTM `N ≈ 1–3 × 10⁶`) on an `O(10⁵)`-window set, so a
+full run is `≈ 6 × 10¹⁷` FLOP — **hours on one ≤ 24 GB GPU** (< ~8 GPU-h each; < ~16 GB peak; no
+multi-GPU). **Train offline** on a free Colab/Kaggle T4 or a rented RTX 4090 / L4 / A10G and push the
+checkpoint + model card to the Hub; a full v0.2 run (both baselines + a small sweep + finals) is
+**< ~1 GPU-day and < ~$50**, $0 on the free tiers — confirming the charter's "single GPU in hours"
+claim. The numbers are an order-of-magnitude estimate with a measured **acceptance gate** (wall-clock
+< ~8 h, peak < ~16 GB) recorded on each checkpoint's model card (D8) at training time. The full
+hosting/integrity/budget rationale is in
+[`spikes/v7-leaderboard-integrity-and-compute-budget.md`](spikes/v7-leaderboard-integrity-and-compute-budget.md).
+
+---
+
 *Sources: [`spikes/v1-dataset-redistribution.md`](spikes/v1-dataset-redistribution.md),
 [`spikes/v2-label-sources.md`](spikes/v2-label-sources.md),
 [`spikes/v3-detectability-floor.md`](spikes/v3-detectability-floor.md),
 [`spikes/v4-dv-inversion.md`](spikes/v4-dv-inversion.md),
-[`spikes/v5-irregular-sampling-encoding.md`](spikes/v5-irregular-sampling-encoding.md), and the project
-charter.*
+[`spikes/v5-irregular-sampling-encoding.md`](spikes/v5-irregular-sampling-encoding.md),
+[`spikes/v7-leaderboard-integrity-and-compute-budget.md`](spikes/v7-leaderboard-integrity-and-compute-budget.md),
+and the project charter.*
