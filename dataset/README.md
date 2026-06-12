@@ -44,7 +44,7 @@ run the build:
 ```bash
 export SPACETRACK_USERNAME='you@example.com'
 export SPACETRACK_PASSWORD='…'
-uv run maneuver-detect dataset build --out dataset/v0.2   # --recipe-version defaults to 0.2.0
+uv run maneuver-detect dataset build --out dataset/v0.2
 ```
 
 This fetches each catalogue object's mean-element history from Space-Track (cached and rate-limited),
@@ -53,7 +53,7 @@ for the operator labels, derives the GEO labels from the reconstructed series, a
 `recipe.json`, `labels.json`, and `manifest.json`. It is a long run — the label archives are crawled
 file-by-file at a polite rate, in addition to the per-object Space-Track fetch. Re-running on the same
 recipe reproduces identical hashes, so a mismatch against the committed `manifest.json` means the
-reconstruction diverged. Pass `--recipe-version 0.1.0` to rebuild the frozen v0.1 set instead.
+reconstruction diverged.
 
 The GPS NANU and Galileo NAGU archives are crawled over a year window — `--nanu-start-year`
 (default 2016) and `--nanu-end-year` (default: the current year) — so `labels.json` is a snapshot of
