@@ -32,7 +32,8 @@ from maneuver_detect.labels.labeller import (
     label_coverage,
     label_series,
 )
-from maneuver_detect.labels.record import ManeuverLabel, OrbitClass
+from maneuver_detect.labels.longitude_shift import derive_geo_labels
+from maneuver_detect.labels.record import SOURCE_SELF_GEO, ManeuverLabel, OrbitClass
 
 __all__ = ["LabelledDataset", "ObjectDataset", "reconstruct", "verify"]
 
@@ -118,13 +119,17 @@ def reconstruct(
         series = assemble(cleaned)
         # Scope the object's labels to the same epoch window the series was fetched in (the same
         # inclusive bounds, via the shared range helpers), so a label that falls outside the window
-        # never enters the committed label set or the coverage report.
+        # never enters the committed label set or the coverage report. The self-labelled GEO source
+        # carries no external file — its station-keeping labels are derived from the cleaned series
+        # here (deterministic, so the committed labels reproduce byte-for-byte).
         lo, hi = normalise_range(entry.start, entry.end)
-        obj_labels = [
-            label
-            for label in labels_by_norad.get(entry.norad_id, [])
-            if in_range(label.epoch, lo, hi)
-        ]
+        if entry.label_source == SOURCE_SELF_GEO:
+            candidate_labels: Sequence[ManeuverLabel] = derive_geo_labels(
+                series, norad_id=entry.norad_id
+            )
+        else:
+            candidate_labels = labels_by_norad.get(entry.norad_id, [])
+        obj_labels = [label for label in candidate_labels if in_range(label.epoch, lo, hi)]
         all_labels.extend(obj_labels)
         labelling = label_series(series, obj_labels)
         _logger.info(

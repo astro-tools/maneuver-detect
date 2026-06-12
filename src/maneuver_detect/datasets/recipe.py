@@ -7,8 +7,8 @@ which is what keeps the recipe-first model compliant (the raw Space-Track series
 each user reconstructs from their own account). The companion ``manifest`` module pins the content
 hash of each reconstructed series.
 
-The v0.1 recipe itself lives in :mod:`~maneuver_detect.datasets.catalogue` (``v01_recipe``); this
-module is the schema and its canonical JSON serialisation.
+The recipe itself lives in :mod:`~maneuver_detect.datasets.catalogue` (``recipe``); this module is
+the schema and its canonical JSON serialisation.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
-"""Dataset accessors and the reconstructable v0.1 dataset.
+"""Dataset accessors and the reconstructable labelled dataset.
 
 ``tle_history`` is the per-object accessor — the cleaned mean-element series for one NORAD id. The
-recipe / manifest / reconstruction surface assembles the full v0.1 **labelled** dataset from a
+recipe / manifest / reconstruction surface assembles the full **labelled** dataset from a
 pinned :class:`Recipe` (D2): each series is re-fetched and re-derived locally, then verified
 byte-for-byte against a content-hash :class:`Manifest` (D8). The raw catalogue data is never shipped
 — only the recipe parameters, the open labels, and the per-series digests. The benchmark release
@@ -18,7 +18,7 @@ from maneuver_detect.datasets.catalogue import (
     GPS_CONSTELLATION,
     GpsSatellite,
     gps_svn_to_norad,
-    v01_recipe,
+    recipe,
 )
 from maneuver_detect.datasets.manifest import Manifest, SeriesDigest, series_sha256
 from maneuver_detect.datasets.recipe import Recipe, RecipeEntry
@@ -43,10 +43,10 @@ __all__ = [
     "RecipeEntry",
     "SeriesDigest",
     "gps_svn_to_norad",
+    "recipe",
     "reconstruct",
     "series_sha256",
     "tle_history",
-    "v01_recipe",
     "verify",
 ]
 

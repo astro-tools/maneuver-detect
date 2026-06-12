@@ -103,7 +103,7 @@ def _build_parser() -> argparse.ArgumentParser:
     dataset_parser = subcommands.add_parser(
         "dataset",
         help="build the reconstructable dataset artifacts",
-        description="Reconstruct the v0.1 labelled dataset from the pinned recipe.",
+        description="Reconstruct the labelled dataset from a pinned recipe.",
     )
     dataset_actions = dataset_parser.add_subparsers(
         dest="dataset_command", required=True, metavar="<action>"
@@ -224,7 +224,7 @@ def _render(result: pd.DataFrame, output_format: str) -> str:
 
 
 def _run_dataset_build(out_dir: str, nanu_start_year: int, nanu_end_year: int | None) -> int:
-    """Reconstruct the v0.1 dataset and write the recipe / labels / manifest artifacts."""
+    """Reconstruct the dataset and write recipe / labels / manifest."""
     import logging
     import sys
     from datetime import datetime, timezone
@@ -234,7 +234,7 @@ def _run_dataset_build(out_dir: str, nanu_start_year: int, nanu_end_year: int | 
     from maneuver_detect.data.ratelimit import RateLimiter
     from maneuver_detect.data.spacetrack import SpacetrackFetcher
     from maneuver_detect.datasets.build import build_dataset, fetch_labels
-    from maneuver_detect.datasets.catalogue import v01_recipe
+    from maneuver_detect.datasets.catalogue import recipe
     from maneuver_detect.labels.record import OrbitClass
 
     # A build is a long run (a NANU-archive crawl plus a per-object Space-Track fetch), so surface
@@ -246,26 +246,26 @@ def _run_dataset_build(out_dir: str, nanu_start_year: int, nanu_end_year: int | 
     progress.setLevel(logging.INFO)
 
     end_year = nanu_end_year if nanu_end_year is not None else datetime.now(tz=timezone.utc).year
-    recipe = v01_recipe()
+    dataset_recipe = recipe()
     headers = {"User-Agent": f"maneuver-detect/{__version__}"}
     progress.info(
         "fetching labels (NANU archive %d-%d), then %d series...",
         nanu_start_year,
         end_year,
-        len(recipe.entries),
+        len(dataset_recipe.entries),
     )
     with httpx.Client(timeout=60.0, headers=headers, follow_redirects=True) as client:
         labels = fetch_labels(
-            recipe,
+            dataset_recipe,
             client,
             nanu_start_year=nanu_start_year,
             nanu_end_year=end_year,
             rate_limiter=RateLimiter(1.0),
         )
         with SpacetrackFetcher() as fetcher:
-            report = build_dataset(recipe, fetcher, labels, out_dir)
+            report = build_dataset(dataset_recipe, fetcher, labels, out_dir)
 
-    counts = recipe.per_class_counts()
+    counts = dataset_recipe.per_class_counts()
     print(
         f"reconstructed {report.n_objects} objects "
         f"(LEO {counts[OrbitClass.LEO]}, MEO {counts[OrbitClass.MEO]}, "

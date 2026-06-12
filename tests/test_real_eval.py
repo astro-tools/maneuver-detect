@@ -2,7 +2,7 @@
 
 Two evaluations, both scored through the real benchmark matching + metric layers (the same path the
 published numbers run through), using the genuine operator-announced maneuvers in the committed
-``dataset/v0.1/labels.json`` (real epochs, dv magnitudes, and types):
+``dataset/v0.2/labels.json`` (real epochs, dv magnitudes, and types):
 
 * :func:`test_real_schedule_eval` (runs in CI) — replays each satellite's *real maneuver schedule*
   onto a deterministic synthetic mean-element background and asserts the detector recovers the
@@ -47,7 +47,7 @@ _DEG = math.pi / 180.0
 _SECONDS_PER_DAY = 86400.0
 
 #: The committed operator-label catalogue (DORIS/IDS), the ground truth for both evaluations.
-_LABELS_PATH = Path(__file__).resolve().parent.parent / "dataset" / "v0.1" / "labels.json"
+_LABELS_PATH = Path(__file__).resolve().parent.parent / "dataset" / "v0.2" / "labels.json"
 
 #: Known-maneuver DORIS altimetry satellites for the synthetic-schedule replay and their
 #: approximate (sun-synchronous) reference orbits — NORAD id, name, and the orbit the inversion
