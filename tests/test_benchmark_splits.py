@@ -27,7 +27,15 @@ pytestmark = pytest.mark.benchmark
 
 _UTC = timezone.utc
 _T0 = datetime(2020, 1, 1, tzinfo=_UTC)
-_DATA_DIR = Path(__file__).resolve().parents[1] / "dataset" / "v0.1"
+_DATASET_DIR = Path(__file__).resolve().parents[1] / "dataset"
+#: The released dataset versions whose frozen split must reproduce byte-for-byte. v0.2 grows the
+#: object set but its split is re-frozen by the class-stratified / temporal-holdout split work (the
+#: window-overlap split degenerates on the dense GEO labels), so only v0.1 is pinned here for now.
+_FROZEN_VERSIONS = ("0.1.0",)
+
+
+def _version_dir(version: str) -> Path:
+    return _DATASET_DIR / f"v{version.rsplit('.', 1)[0]}"  # "0.1.0" -> "v0.1"
 
 
 def _label(
@@ -49,22 +57,24 @@ def _label(
     )
 
 
-def _committed_labels() -> list[ManeuverLabel]:
-    return labels_from_json((_DATA_DIR / "labels.json").read_text(encoding="utf-8"))
+def _committed_labels(version: str = "0.1.0") -> list[ManeuverLabel]:
+    return labels_from_json((_version_dir(version) / "labels.json").read_text(encoding="utf-8"))
 
 
 # --- frozen-artifact reproducibility (the strongest byte-stability guarantee) ---
 
 
-def test_make_splits_reproduces_frozen_artifact() -> None:
-    committed = (_DATA_DIR / "splits.json").read_text(encoding="utf-8")
-    assert make_splits(_committed_labels()).to_json() == committed
+@pytest.mark.parametrize("version", _FROZEN_VERSIONS)
+def test_make_splits_reproduces_frozen_artifact(version: str) -> None:
+    committed = (_version_dir(version) / "splits.json").read_text(encoding="utf-8")
+    assert make_splits(_committed_labels(version), dataset_version=version).to_json() == committed
 
 
-def test_frozen_artifact_round_trips() -> None:
-    committed = (_DATA_DIR / "splits.json").read_text(encoding="utf-8")
+@pytest.mark.parametrize("version", _FROZEN_VERSIONS)
+def test_frozen_artifact_round_trips(version: str) -> None:
+    committed = (_version_dir(version) / "splits.json").read_text(encoding="utf-8")
     split = Split.from_json(committed)
-    assert split == make_splits(_committed_labels())
+    assert split == make_splits(_committed_labels(version), dataset_version=version)
     assert split.to_json() == committed
 
 

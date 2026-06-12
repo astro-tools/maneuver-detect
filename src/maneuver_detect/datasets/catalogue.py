@@ -1,21 +1,21 @@
-"""The v0.1 dataset catalogue — the objects the recipe reconstructs, as public reference facts.
+"""The dataset catalogue — the objects the recipe reconstructs, as public reference facts.
 
-Two classes, matching the v0.1 label scope (D3):
+Three classes (D3 + the v0.2 growth set, D13):
 
 - **LEO** — the DORIS/IDS satellites that publish a ``man.txt`` maneuver file *and* have a confident
   NORAD id: the altimetry missions (the Δv-labelled core) and the SPOT imaging satellites. A few
   with published files but no crosswalk entry yet (HY-2C/2D, Sentinel-6B, SWOT) are left out.
-- **MEO** — the operational GPS constellation (``SVN / PRN / NORAD``), sourced and cross-checked
-  against the CelesTrak GPS catalogue. This table doubles as the ``SVN → NORAD`` crosswalk the NANU
-  label parser needs (it accepts an injectable crosswalk), so the dataset layer supplies the full
-  mapping the label layer ships only a seed of.
+- **MEO** — two operator constellations: the operational **GPS** constellation (``SVN / PRN /
+  NORAD``, labels from the NANU FCSTDV notices) and the **Galileo** constellation (``GSAT / NORAD``,
+  labels from the NAGU ``PLN_MANV`` notices). Each table doubles as the source-id → NORAD crosswalk
+  its label parser needs, so the dataset layer supplies the full mapping the label layer seeds.
+- **GEO** — actively station-kept geostationary satellites; with no public GEO operator maneuver
+  feed, their labels are **self-derived** from the element series by longitude-drift inspection
+  (best-effort, derived; see :mod:`maneuver_detect.labels.longitude_shift`).
 
-GEO is deferred — there is no public GEO maneuver-label file source, so a GEO object would carry an
-unlabelled series (best-effort per D3; out of v0.1).
-
-The catalogue is a **pinned snapshot**: a satellite's ``SVN → NORAD`` is fixed for its lifetime,
-while the constellation membership and PRN-slot assignments drift over time, so a recipe version
-captures the set at sourcing time.
+The catalogue is a **pinned snapshot**: a satellite's source-id → NORAD is fixed for its lifetime,
+while constellation membership and slot assignments drift over time, so a recipe version pins the
+set at sourcing time.
 """
 
 from __future__ import annotations
@@ -24,18 +24,31 @@ from dataclasses import dataclass
 
 from maneuver_detect.datasets.recipe import Recipe, RecipeEntry
 from maneuver_detect.labels.doris import DORIS_SAT_TO_NORAD
-from maneuver_detect.labels.record import SOURCE_DORIS_IDS, SOURCE_GPS_NANU, OrbitClass
+from maneuver_detect.labels.record import (
+    SOURCE_DORIS_IDS,
+    SOURCE_GALILEO_NAGU,
+    SOURCE_GPS_NANU,
+    SOURCE_SELF_GEO,
+    OrbitClass,
+)
 
 __all__ = [
     "DATASET_VERSION",
+    "GALILEO_CONSTELLATION",
+    "GEO_OBJECTS",
     "GPS_CONSTELLATION",
+    "GalileoSatellite",
     "GpsSatellite",
+    "galileo_gsat_to_norad",
     "gps_svn_to_norad",
     "v01_recipe",
+    "v02_recipe",
 ]
 
-#: The dataset version (versioned in lockstep with a later Hub release and the manifest of it — D8).
-DATASET_VERSION = "0.1.0"
+#: The current dataset version (in lockstep with a later Hub release and the manifest — D8).
+DATASET_VERSION = "0.2.0"
+#: The frozen v0.1 version — its recipe/labels/manifest/splits stay byte-stable as v0.2 grows.
+DATASET_VERSION_V01 = "0.1.0"
 
 
 @dataclass(frozen=True)
@@ -116,17 +129,88 @@ _LEO_DORIS_SATS: tuple[tuple[str, str, str], ...] = (
 )
 
 
+@dataclass(frozen=True)
+class GalileoSatellite:
+    """One Galileo satellite — its GSAT id, NORAD id, and common name.
+
+    Attributes:
+        gsat: The GSAT designation (fixed per physical satellite, e.g. ``"GSAT0101"``) — the key the
+            NAGU ``SATELLITE AFFECTED`` field carries and the label crosswalk resolves.
+        norad_id: NORAD catalogue id.
+        name: Common name (e.g. ``"GALILEO 5"`` / ``"GALILEO-PFM"``).
+    """
+
+    gsat: str
+    norad_id: int
+    name: str
+
+
+# The Galileo constellation from the CelesTrak galileo catalogue (GSAT → NORAD, every id confirmed
+# against CelesTrak). The two early In-Orbit-Validation satellites (GSAT0101/0102) and the eccentric
+# GSAT0201/0202 (launched into a wrong orbit but usable) stay catalogued — like the GPS table, an
+# object kept for navigation status or not still carries an element history and NAGU notices.
+GALILEO_CONSTELLATION: tuple[GalileoSatellite, ...] = (
+    GalileoSatellite("GSAT0101", 37846, "GALILEO-PFM"),
+    GalileoSatellite("GSAT0102", 37847, "GALILEO-FM2"),
+    GalileoSatellite("GSAT0103", 38857, "GALILEO-FM3"),
+    GalileoSatellite("GSAT0201", 40128, "GALILEO 5"),
+    GalileoSatellite("GSAT0202", 40129, "GALILEO 6"),
+    GalileoSatellite("GSAT0203", 40544, "GALILEO 7"),
+    GalileoSatellite("GSAT0204", 40545, "GALILEO 8"),
+    GalileoSatellite("GSAT0205", 40889, "GALILEO 9"),
+    GalileoSatellite("GSAT0206", 40890, "GALILEO 10"),
+    GalileoSatellite("GSAT0208", 41175, "GALILEO 11"),
+    GalileoSatellite("GSAT0209", 41174, "GALILEO 12"),
+    GalileoSatellite("GSAT0210", 41550, "GALILEO 13"),
+    GalileoSatellite("GSAT0211", 41549, "GALILEO 14"),
+    GalileoSatellite("GSAT0207", 41859, "GALILEO 15"),
+    GalileoSatellite("GSAT0212", 41860, "GALILEO 16"),
+    GalileoSatellite("GSAT0213", 41861, "GALILEO 17"),
+    GalileoSatellite("GSAT0214", 41862, "GALILEO 18"),
+    GalileoSatellite("GSAT0215", 43055, "GALILEO 19"),
+    GalileoSatellite("GSAT0216", 43056, "GALILEO 20"),
+    GalileoSatellite("GSAT0217", 43057, "GALILEO 21"),
+    GalileoSatellite("GSAT0218", 43058, "GALILEO 22"),
+    GalileoSatellite("GSAT0219", 43566, "GALILEO 23"),
+    GalileoSatellite("GSAT0220", 43567, "GALILEO 24"),
+    GalileoSatellite("GSAT0221", 43564, "GALILEO 25"),
+    GalileoSatellite("GSAT0222", 43565, "GALILEO 26"),
+    GalileoSatellite("GSAT0223", 49809, "GALILEO 27"),
+    GalileoSatellite("GSAT0224", 49810, "GALILEO 28"),
+    GalileoSatellite("GSAT0225", 59598, "GALILEO 29"),
+    GalileoSatellite("GSAT0226", 61183, "GALILEO 31"),
+    GalileoSatellite("GSAT0227", 59600, "GALILEO 30"),
+    GalileoSatellite("GSAT0232", 61182, "GALILEO 32"),
+    GalileoSatellite("GSAT0233", 67160, "GALILEO 33"),
+    GalileoSatellite("GSAT0234", 67162, "GALILEO 34"),
+)
+
+# Actively station-kept geostationary satellites for the self-labelled GEO class: NORAD id + name,
+# confirmed GEO and operational against the CelesTrak SATCAT. A mix of tightly-controlled sats (the
+# GOES/Himawari weather satellites, both E-W and N-S station-keeping) and inclined-orbit ones (the
+# older Meteosat satellites, E-W only) — all with long, dense element histories.
+GEO_OBJECTS: tuple[tuple[int, str], ...] = (
+    (38552, "Meteosat-10"),
+    (40267, "Himawari-8"),
+    (40732, "Meteosat-11"),
+    (41866, "GOES-16"),
+    (43226, "GOES-17"),
+    (51850, "GOES-18"),
+)
+
+
 def gps_svn_to_norad() -> dict[str, int]:
     """The ``SVN → NORAD`` crosswalk for the constellation (the NANU parser's ``svn_to_norad``)."""
     return {f"SVN{sat.svn}": sat.norad_id for sat in GPS_CONSTELLATION}
 
 
-def v01_recipe(dataset_version: str = DATASET_VERSION) -> Recipe:
-    """Build the pinned v0.1 reconstruction recipe — the LEO altimetry set + the GPS constellation.
+def galileo_gsat_to_norad() -> dict[str, int]:
+    """The ``GSAT → NORAD`` crosswalk (the NAGU parser's ``gsat_to_norad``)."""
+    return {sat.gsat: sat.norad_id for sat in GALILEO_CONSTELLATION}
 
-    Every object fetches its multi-year series from Space-Track; LEO objects carry DORIS/IDS labels,
-    MEO objects carry GPS NANU labels. Entries are ordered by NORAD id for a stable serialisation.
-    """
+
+def _v01_entries() -> list[RecipeEntry]:
+    """The v0.1 recipe entries — the LEO altimetry (DORIS/IDS) set + the GPS constellation."""
     entries: list[RecipeEntry] = [
         RecipeEntry(
             norad_id=DORIS_SAT_TO_NORAD[code],
@@ -149,7 +233,61 @@ def v01_recipe(dataset_version: str = DATASET_VERSION) -> Recipe:
         )
         for sat in GPS_CONSTELLATION
     ]
+    return entries
+
+
+def _galileo_entries() -> list[RecipeEntry]:
+    """The v0.2 Galileo MEO entries — NAGU PLN_MANV labels (``label_ref`` = GSAT id)."""
+    return [
+        RecipeEntry(
+            norad_id=sat.norad_id,
+            orbit_class=OrbitClass.MEO,
+            object_name=f"Galileo {sat.gsat} ({sat.name})",
+            catalogue_source="spacetrack",
+            label_source=SOURCE_GALILEO_NAGU,
+            label_ref=sat.gsat,
+        )
+        for sat in GALILEO_CONSTELLATION
+    ]
+
+
+def _geo_entries() -> list[RecipeEntry]:
+    """The v0.2 GEO entries — labels self-derived from the series (``label_ref=""``)."""
+    return [
+        RecipeEntry(
+            norad_id=norad_id,
+            orbit_class=OrbitClass.GEO,
+            object_name=name,
+            catalogue_source="spacetrack",
+            label_source=SOURCE_SELF_GEO,
+            label_ref="",
+        )
+        for norad_id, name in GEO_OBJECTS
+    ]
+
+
+def _recipe(dataset_version: str, entries: list[RecipeEntry]) -> Recipe:
+    """Wrap ``entries`` in a NORAD-sorted :class:`Recipe` for stable serialisation."""
     return Recipe(
         dataset_version=dataset_version,
         entries=tuple(sorted(entries, key=lambda entry: entry.norad_id)),
     )
+
+
+def v01_recipe(dataset_version: str = DATASET_VERSION_V01) -> Recipe:
+    """The pinned, frozen v0.1 recipe — the LEO altimetry set + the GPS constellation.
+
+    Every object fetches its multi-year series from Space-Track; LEO objects carry DORIS/IDS labels,
+    MEO objects carry GPS NANU labels. Stays byte-stable as v0.2 grows.
+    """
+    return _recipe(dataset_version, _v01_entries())
+
+
+def v02_recipe(dataset_version: str = DATASET_VERSION) -> Recipe:
+    """The pinned v0.2 reconstruction recipe — v0.1 plus the Galileo MEO and self-labelled GEO sets.
+
+    Extends :func:`v01_recipe` with the Galileo constellation (MEO, NAGU labels) and the
+    actively station-kept GEO satellites (labels self-derived from the series by longitude-drift
+    inspection). Entries are ordered by NORAD id for a stable serialisation.
+    """
+    return _recipe(dataset_version, _v01_entries() + _galileo_entries() + _geo_entries())

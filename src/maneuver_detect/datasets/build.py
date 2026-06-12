@@ -27,18 +27,25 @@ import httpx
 
 from maneuver_detect.data.base import Fetcher
 from maneuver_detect.data.ratelimit import RateLimiter
-from maneuver_detect.datasets.catalogue import gps_svn_to_norad
+from maneuver_detect.datasets.catalogue import galileo_gsat_to_norad, gps_svn_to_norad
 from maneuver_detect.datasets.recipe import Recipe
 from maneuver_detect.datasets.reconstruct import LabelledDataset, reconstruct
 from maneuver_detect.labels.doris import parse_doris
+from maneuver_detect.labels.galileo_nagu import parse_nagus
 from maneuver_detect.labels.gps_nanu import parse_nanus
 from maneuver_detect.labels.labeller import CoverageReport
-from maneuver_detect.labels.record import SOURCE_DORIS_IDS, ManeuverLabel, OrbitClass
+from maneuver_detect.labels.record import (
+    SOURCE_DORIS_IDS,
+    SOURCE_GALILEO_NAGU,
+    ManeuverLabel,
+    OrbitClass,
+)
 from maneuver_detect.schema import ManeuverType
 
 __all__ = [
     "BuildReport",
     "build_dataset",
+    "fetch_galileo_nagu_labels",
     "fetch_labels",
     "fetch_nanu_labels",
     "labels_from_json",
@@ -53,6 +60,15 @@ _IDS_MAN_URL = "https://ids-doris.org/documents/BC/satellites/{ref}man.txt"
 # (forecast delta-V = maneuver) history. The current_nanu.nnu file holds only the latest notice.
 _NANU_ARCHIVE_INDEX = "https://celestrak.org/GPS/NANU/{year}/"
 _NANU_ARCHIVE_FILE = "https://celestrak.org/GPS/NANU/{year}/{name}"
+# The Galileo NAGU archive — the GSC publishes one .txt per notice at a stable URL keyed by the
+# notice number (``<year><seq>``, sequential per year). There is no machine listing, so the crawl
+# probes ``seq = 1, 2, ...`` per year until a run of consecutive misses ends the year.
+_GSC_NAGU_FILE = (
+    "https://www.gsc-europa.eu/sites/default/files/"
+    "NOTICE_ADVISORY_TO_GALILEO_USERS_NAGU_{year}{seq:03d}.txt"
+)
+# Galileo NAGU numbers are sequential per year, so this many consecutive 404s ends a year's crawl.
+_NAGU_MISS_RUN = 25
 
 
 def labels_to_json(labels: Sequence[ManeuverLabel]) -> str:
@@ -185,6 +201,47 @@ def fetch_nanu_labels(
     return labels
 
 
+def fetch_galileo_nagu_labels(
+    client: httpx.Client,
+    *,
+    start_year: int,
+    end_year: int,
+    gsat_to_norad: Mapping[str, int],
+    rate_limiter: RateLimiter | None = None,
+) -> list[ManeuverLabel]:
+    """Crawl the GSC Galileo NAGU archive over ``[start_year, end_year]`` for PLN_MANV labels.
+
+    The GSC exposes no machine listing, so each year is probed by sequential notice number
+    (``seq = 1, 2, ...``) against the stable ``.txt`` URL; a run of :data:`_NAGU_MISS_RUN`
+    consecutive 404s ends the year (NAGU numbers are sequential per year). Every fetched notice is
+    parsed and only the ``PLN_MANV`` notices that resolve to a NORAD id are kept. ``rate_limiter``
+    paces the per-file fetches — pass one for a polite crawl.
+    """
+    labels: list[ManeuverLabel] = []
+    for year in range(start_year, end_year + 1):
+        before = len(labels)
+        seq, misses = 0, 0
+        while misses < _NAGU_MISS_RUN:
+            seq += 1
+            if rate_limiter is not None:
+                rate_limiter.acquire()
+            response = client.get(_GSC_NAGU_FILE.format(year=year, seq=seq))
+            if response.status_code == 404:
+                misses += 1
+                continue
+            response.raise_for_status()
+            misses = 0
+            labels.extend(
+                label
+                for label in parse_nagus(response.text, gsat_to_norad=gsat_to_norad)
+                if label.norad_id is not None
+            )
+        _logger.info(
+            "Galileo NAGU %d: %d PLN_MANV labels (to seq %d)", year, len(labels) - before, seq
+        )
+    return labels
+
+
 def fetch_labels(
     recipe: Recipe,
     client: httpx.Client,
@@ -196,9 +253,11 @@ def fetch_labels(
     """Download and parse the open maneuver-label files for ``recipe``, keyed by NORAD id.
 
     DORIS/IDS ``man.txt`` files are fetched one per LEO entry (a renamed/missing file is skipped
-    with a warning); the GPS NANU FCSTDV notices come from the CelesTrak archive over
-    ``[nanu_start_year, nanu_end_year]``, parsed with the full constellation crosswalk. Labels that
-    do not resolve to a NORAD id are dropped (they cannot attach to a series).
+    with a warning); the GPS NANU FCSTDV notices come from the CelesTrak archive and — when the
+    recipe carries Galileo entries — the Galileo NAGU notices from the GSC archive, both
+    over ``[nanu_start_year, nanu_end_year]`` with the full constellation crosswalks. Labels that do
+    not resolve to a NORAD id are dropped (they cannot attach to a series). The self-labelled GEO
+    source carries no external file — those labels are derived from the series at reconstruction.
     """
     by_norad: dict[int, list[ManeuverLabel]] = {}
     seen_refs: set[str] = set()
@@ -232,4 +291,15 @@ def fetch_labels(
     ):
         if label.norad_id is not None:
             by_norad.setdefault(label.norad_id, []).append(label)
+
+    if any(entry.label_source == SOURCE_GALILEO_NAGU for entry in recipe.entries):
+        for label in fetch_galileo_nagu_labels(
+            client,
+            start_year=nanu_start_year,
+            end_year=nanu_end_year,
+            gsat_to_norad=galileo_gsat_to_norad(),
+            rate_limiter=rate_limiter,
+        ):
+            if label.norad_id is not None:
+                by_norad.setdefault(label.norad_id, []).append(label)
     return by_norad
