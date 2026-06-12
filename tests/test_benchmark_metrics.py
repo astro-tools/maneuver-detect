@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 
 from maneuver_detect.benchmark.matching import ScoredLabel, match_detections
-from maneuver_detect.benchmark.metrics import ObjectExposure, class_metrics
+from maneuver_detect.benchmark.metrics import ClassMetrics, ObjectExposure, class_metrics
 from maneuver_detect.labels.labeller import LabelledInterval
 from maneuver_detect.labels.record import OrbitClass
 from maneuver_detect.schema import Maneuver, ManeuverType
@@ -209,6 +209,93 @@ def test_class_without_labels_has_none_recall_and_a_stable_shape() -> None:
     assert leo.n_objects == 0
     assert leo.sat_years == 0.0
     assert leo.recall is None
+
+
+# --- per-class confidence intervals on recall and precision ---------------------------------------
+
+
+def test_confidence_interval_brackets_the_estimate_and_honours_the_upper_extreme() -> None:
+    # A perfect 1-of-1 class: recall is 1.0, but the Wilson interval keeps an honest lower bound
+    # below 1.0 (a single object is not certainty) while the upper bound is exactly 1.0.
+    labels = [_label(100, "2024-01-10")]
+    detections = [_detection(100, "2024-01-10", 0.9)]
+    leo = class_metrics(
+        match_detections(detections, labels), [ObjectExposure(100, OrbitClass.LEO, 1.0)]
+    )[OrbitClass.LEO]
+    assert leo.recall == pytest.approx(1.0)
+    assert leo.recall_ci is not None
+    low, high = leo.recall_ci
+    assert 0.0 < low < 1.0
+    assert high == pytest.approx(1.0)
+
+
+def test_zero_recall_interval_has_a_zero_lower_bound() -> None:
+    # An above-floor label with no detection: recall 0.0 with a lower bound pinned at exactly 0.0.
+    labels = [_label(100, "2024-01-10")]
+    leo = class_metrics(match_detections([], labels), [ObjectExposure(100, OrbitClass.LEO, 1.0)])[
+        OrbitClass.LEO
+    ]
+    assert leo.recall == pytest.approx(0.0)
+    assert leo.recall_ci is not None
+    low, high = leo.recall_ci
+    assert low == pytest.approx(0.0)
+    assert 0.0 < high < 1.0
+
+
+def test_interval_is_undefined_when_the_estimate_is() -> None:
+    # No labels -> recall undefined -> its interval is undefined too (not a spurious (0, x)); and a
+    # lone unaffordable alarm leaves no admitted detection, so precision and its interval are None.
+    detections = [_detection(300, "2024-01-02", 0.5, ManeuverType.RADIAL)]
+    geo = class_metrics(
+        match_detections(detections, []), [ObjectExposure(300, OrbitClass.GEO, 0.5)]
+    )[OrbitClass.GEO]
+    assert geo.recall is None
+    assert geo.recall_ci is None
+    assert geo.precision is None
+    assert geo.precision_ci is None
+
+
+def test_interval_narrows_as_the_sample_grows() -> None:
+    # Two perfect classes, recall 1.0 in both, but the larger sample yields a tighter interval with
+    # a higher lower bound — the honesty the per-class confidence interval exists to surface.
+    def perfect(n: int, orbit_class: OrbitClass) -> ClassMetrics:
+        days = [
+            (pd.Timestamp("2024-01-01") + pd.Timedelta(days=7 * i)).strftime("%Y-%m-%d")
+            for i in range(n)
+        ]
+        labels = [_label(100, day, orbit_class=orbit_class) for day in days]
+        detections = [_detection(100, day, 0.9) for day in days]
+        return class_metrics(
+            match_detections(detections, labels), [ObjectExposure(100, orbit_class, float(n))]
+        )[orbit_class]
+
+    small = perfect(1, OrbitClass.LEO)
+    large = perfect(20, OrbitClass.MEO)
+    assert small.recall == pytest.approx(1.0)
+    assert large.recall == pytest.approx(1.0)
+    assert small.recall_ci is not None
+    assert large.recall_ci is not None
+    assert (large.recall_ci[1] - large.recall_ci[0]) < (small.recall_ci[1] - small.recall_ci[0])
+    assert large.recall_ci[0] > small.recall_ci[0]
+
+
+def test_confidence_level_widens_the_interval() -> None:
+    labels = [_label(100, "2024-01-03"), _label(100, "2024-01-10"), _label(100, "2024-01-20")]
+    detections = [_detection(100, "2024-01-03", 0.9), _detection(100, "2024-01-10", 0.8)]
+    exposure = [ObjectExposure(100, OrbitClass.LEO, 2.0)]
+    matching = match_detections(detections, labels)
+    narrow = class_metrics(matching, exposure, ci_level=0.90)[OrbitClass.LEO].recall_ci
+    wide = class_metrics(matching, exposure, ci_level=0.99)[OrbitClass.LEO].recall_ci
+    assert narrow is not None
+    assert wide is not None
+    assert wide[0] < narrow[0]
+    assert wide[1] > narrow[1]
+
+
+@pytest.mark.parametrize("bad", [0.0, 1.0, 1.5, -0.1])
+def test_invalid_ci_level_is_rejected(bad: float) -> None:
+    with pytest.raises(ValueError, match="ci_level"):
+        class_metrics(match_detections([], []), [], ci_level=bad)
 
 
 # --- input validation -----------------------------------------------------------------------------

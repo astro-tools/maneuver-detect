@@ -43,6 +43,10 @@ prediction target is **per inter-elset gap**, not a continuous timestamp.
   satellite-year** (D4). **Primary operating point: 1 FA/sat-year.** Report a **P/R curve over a sweep**
   (0.3 / 1 / 3 FA/sat-year).
 - **Headline number: recall @ 1 FA/sat-year over the above-floor population, per class.**
+- **Per-class sampling confidence intervals.** Recall and precision are reported with a Wilson score
+  interval (default 95%, configurable) on the metric estimate — closed-form and byte-stable, so a
+  per-class number from few test objects is read with its uncertainty. This is the uncertainty of the
+  *estimate*, not a calibration of the detector's per-detection `confidence` (the latter is v0.3 work).
 - **Per-class type confusion** (in-track / cross-track / radial) over matched above-floor detections.
 - **Δv error** where Δv ground truth exists (LEO/altimetry via DORIS, #10): reported per class, expected
   within ~±25% above the floor (D5); not scored below the floor or for radial-dominated maneuvers.

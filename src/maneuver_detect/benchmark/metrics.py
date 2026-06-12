@@ -18,18 +18,27 @@ true positives included at the headline operating point, restricted to labels th
 type (epoch-only labels contribute no ground-truth type). All arithmetic is integer counts and IEEE
 divisions over inputs fixed by the caller, so a class's metrics are byte-stable across runs and
 platforms.
+
+Each per-class recall and precision is reported with a **Wilson score confidence interval** (default
+95%, configurable) — a sampling interval on the metric *estimate*, so a recall computed from a
+handful of test objects is read with its uncertainty rather than as a point fact (a 1-of-1 recall is
+not certainty). The interval is closed-form — no resampling — so the report stays byte-stable. This
+is the uncertainty of the *estimate*, distinct from calibrating a detector's per-detection
+``confidence`` output.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from statistics import NormalDist
 
 from maneuver_detect.benchmark.matching import Matching
 from maneuver_detect.labels.record import OrbitClass
 from maneuver_detect.schema import ManeuverType
 
 __all__ = [
+    "DEFAULT_CI_LEVEL",
     "DEFAULT_OPERATING_POINT",
     "DEFAULT_SWEEP",
     "ClassMetrics",
@@ -44,6 +53,10 @@ DEFAULT_OPERATING_POINT = 1.0
 
 #: The false-alarm-per-satellite-year sweep the P/R curve is reported over (D7).
 DEFAULT_SWEEP: tuple[float, ...] = (0.3, 1.0, 3.0)
+
+#: The default confidence level for the per-class sampling intervals on recall and precision — a
+#: Wilson score interval that reads a few-object estimate honestly (1-of-1 recall is not certainty).
+DEFAULT_CI_LEVEL = 0.95
 
 
 @dataclass(frozen=True)
@@ -81,11 +94,17 @@ class PRPoint:
             above-floor labels.
         precision: Precision over the above-floor population, or ``None`` when no detection is
             admitted at this operating point (an empty true-positive-plus-false-positive set).
+        recall_ci: The ``(low, high)`` Wilson confidence interval for ``recall``, or ``None`` when
+            ``recall`` is undefined.
+        precision_ci: The ``(low, high)`` Wilson confidence interval for ``precision``, or ``None``
+            when ``precision`` is undefined.
     """
 
     fa_per_sat_year: float
     recall: float | None
     precision: float | None
+    recall_ci: tuple[float, float] | None
+    precision_ci: tuple[float, float] | None
 
 
 @dataclass(frozen=True)
@@ -117,13 +136,19 @@ class ClassMetrics:
         n_labels_above_floor: Above-floor labels in the class — the recall denominator.
         n_labels_total: All matchable labels in the class (the full-population denominator).
         operating_point: The headline false-alarm-per-satellite-year target (D4).
+        ci_level: The confidence level of ``recall_ci`` / ``precision_ci`` (and the sweep CIs).
         recall: Recall over the above-floor population at ``operating_point`` (the headline), or
             ``None`` when the class has no above-floor labels.
+        recall_ci: The ``(low, high)`` Wilson interval for the headline ``recall`` at ``ci_level``,
+            or ``None`` when ``recall`` is undefined — the sampling uncertainty of the estimate, so
+            a recall from few objects is read with its width rather than as a point fact.
         precision: Precision over the above-floor population at ``operating_point``, or ``None``
             when no detection is admitted there.
+        precision_ci: The ``(low, high)`` Wilson interval for the headline ``precision`` at
+            ``ci_level``, or ``None`` when ``precision`` is undefined.
         full_population_recall: Recall counting below-floor recoveries, over all labels — a
             secondary lower bound, or ``None`` when the class has no labels.
-        pr_curve: ``(fa_per_sat_year, recall, precision)`` over the configured sweep.
+        pr_curve: ``(fa_per_sat_year, recall, precision, recall_ci, precision_ci)`` over the sweep.
         confusion: Type confusion over the above-floor true positives at ``operating_point``.
     """
 
@@ -134,8 +159,11 @@ class ClassMetrics:
     n_labels_above_floor: int
     n_labels_total: int
     operating_point: float
+    ci_level: float
     recall: float | None
+    recall_ci: tuple[float, float] | None
     precision: float | None
+    precision_ci: tuple[float, float] | None
     full_population_recall: float | None
     pr_curve: tuple[PRPoint, ...]
     confusion: Confusion
@@ -177,15 +205,20 @@ def class_metrics(
     *,
     operating_point: float = DEFAULT_OPERATING_POINT,
     sweep: tuple[float, ...] = DEFAULT_SWEEP,
+    ci_level: float = DEFAULT_CI_LEVEL,
 ) -> dict[OrbitClass, ClassMetrics]:
     """Score a :class:`~maneuver_detect.benchmark.matching.Matching` per orbit class.
 
     ``exposure`` is the scored population — every detection and every matchable label must belong to
     an object it lists (a :class:`ValueError` is raised otherwise), since the object fixes both the
-    orbit class and the satellite-year denominator. Returns one :class:`ClassMetrics` per
-    :class:`OrbitClass`, present even at zero, so the report shape is stable regardless of which
-    classes the data covers.
+    orbit class and the satellite-year denominator. ``ci_level`` (in ``(0, 1)``) sets the confidence
+    level of the per-class Wilson intervals on recall and precision. Returns one
+    :class:`ClassMetrics` per :class:`OrbitClass`, present even at zero, so the report shape is
+    stable regardless of which classes the data covers.
     """
+    if not 0.0 < ci_level < 1.0:
+        raise ValueError(f"ci_level must be in (0, 1), got {ci_level!r}")
+    z = _z_for(ci_level)
     by_norad = _exposure_map(exposure)
 
     def class_of(norad_id: int, what: str) -> OrbitClass:
@@ -243,6 +276,8 @@ def class_metrics(
             n_total=total_labels[orbit_class],
             operating_point=operating_point,
             sweep=sweep,
+            ci_level=ci_level,
+            z=z,
         )
         for orbit_class in OrbitClass
     }
@@ -258,6 +293,8 @@ def _score_class(
     n_total: int,
     operating_point: float,
     sweep: tuple[float, ...],
+    ci_level: float,
+    z: float,
 ) -> ClassMetrics:
     """Compute one class's metrics from its detections (with outcomes) and label counts."""
     # Descending confidence; ties broken so the operating-point cut is deterministic.
@@ -267,17 +304,21 @@ def _score_class(
 
     def point(rate: float) -> PRPoint:
         walked = _walk(ranked, rate * sat_years)
+        tp_above, fp = walked.precision_counts
         return PRPoint(
             fa_per_sat_year=rate,
-            recall=_recall(walked.tp_above, n_above_floor),
-            precision=_precision(*walked.precision_counts),
+            recall=_recall(tp_above, n_above_floor),
+            precision=_precision(tp_above, fp),
+            recall_ci=_wilson_interval(tp_above, n_above_floor, z),
+            precision_ci=_wilson_interval(tp_above, tp_above + fp, z),
         )
 
     pr_curve = tuple(point(rate) for rate in sweep)
 
     cut = _walk(ranked, operating_point * sat_years)
-    recall = _recall(cut.tp_above, n_above_floor)
-    precision = _precision(*cut.precision_counts)
+    tp_above, fp = cut.precision_counts
+    recall = _recall(tp_above, n_above_floor)
+    precision = _precision(tp_above, fp)
     full_recall = (cut.tp_above + cut.tp_below) / n_total if n_total else None
 
     confusion = _empty_confusion()
@@ -293,8 +334,11 @@ def _score_class(
         n_labels_above_floor=n_above_floor,
         n_labels_total=n_total,
         operating_point=operating_point,
+        ci_level=ci_level,
         recall=recall,
+        recall_ci=_wilson_interval(tp_above, n_above_floor, z),
         precision=precision,
+        precision_ci=_wilson_interval(tp_above, tp_above + fp, z),
         full_population_recall=full_recall,
         pr_curve=pr_curve,
         confusion=Confusion(counts=confusion),
@@ -344,3 +388,27 @@ def _recall(tp: int, n_above_floor: int) -> float | None:
 
 def _precision(tp: int, fp: int) -> float | None:
     return tp / (tp + fp) if (tp + fp) else None
+
+
+def _z_for(ci_level: float) -> float:
+    """The two-sided standard-normal critical value for ``ci_level`` (e.g. 0.95 → ≈1.96)."""
+    return NormalDist().inv_cdf(0.5 + ci_level / 2.0)
+
+
+def _wilson_interval(successes: int, trials: int, z: float) -> tuple[float, float] | None:
+    """The Wilson score interval for ``successes`` / ``trials`` at critical value ``z``.
+
+    A small-sample-honest interval on a binomial proportion: it stays within ``[0, 1]`` and stays
+    informative at the extremes — ``successes == trials`` yields an upper bound of exactly 1.0 with
+    a lower bound below it (so a 1-of-1 estimate does not read as certainty), and ``successes == 0``
+    yields a lower bound of exactly 0.0. Closed-form, so the report stays byte-stable (D8). Returns
+    ``None`` when there are no trials — mirroring the ``None`` the point estimate takes there.
+    """
+    if trials <= 0:
+        return None
+    phat = successes / trials
+    z2 = z * z
+    denom = 1.0 + z2 / trials
+    center = (phat + z2 / (2.0 * trials)) / denom
+    half = (z / denom) * ((phat * (1.0 - phat) / trials + z2 / (4.0 * trials * trials)) ** 0.5)
+    return (max(0.0, center - half), min(1.0, center + half))

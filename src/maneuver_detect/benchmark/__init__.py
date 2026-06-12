@@ -14,6 +14,7 @@ from maneuver_detect.benchmark.matching import (
     match_detections,
 )
 from maneuver_detect.benchmark.metrics import (
+    DEFAULT_CI_LEVEL,
     DEFAULT_OPERATING_POINT,
     DEFAULT_SWEEP,
     ClassMetrics,
@@ -39,6 +40,7 @@ from maneuver_detect.benchmark.splits import (
 )
 
 __all__ = [
+    "DEFAULT_CI_LEVEL",
     "DEFAULT_OPERATING_POINT",
     "DEFAULT_RATIOS",
     "DEFAULT_SEED",

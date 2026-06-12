@@ -21,6 +21,7 @@ import pandas as pd
 
 from maneuver_detect.benchmark.matching import ScoredLabel, match_detections
 from maneuver_detect.benchmark.metrics import (
+    DEFAULT_CI_LEVEL,
     DEFAULT_OPERATING_POINT,
     DEFAULT_SWEEP,
     ClassMetrics,
@@ -47,12 +48,14 @@ class ScoreReport:
     Attributes:
         operating_point: The headline false-alarm-per-satellite-year target (D4).
         sweep: The false-alarm-per-satellite-year sweep the P/R curve covers.
+        ci_level: The confidence level of the per-class recall / precision intervals.
         per_class: One :class:`~maneuver_detect.benchmark.metrics.ClassMetrics` per
             :class:`~maneuver_detect.labels.record.OrbitClass`, present even at zero.
     """
 
     operating_point: float
     sweep: tuple[float, ...]
+    ci_level: float
     per_class: dict[OrbitClass, ClassMetrics]
 
     def headline(self) -> dict[OrbitClass, float | None]:
@@ -64,6 +67,7 @@ class ScoreReport:
         payload = {
             "operating_point": self.operating_point,
             "sweep": list(self.sweep),
+            "ci_level": self.ci_level,
             "per_class": {
                 orbit_class.value: _class_payload(self.per_class[orbit_class])
                 for orbit_class in OrbitClass
@@ -73,15 +77,16 @@ class ScoreReport:
         return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
     def summary(self) -> str:
-        """A human-readable per-class summary of the headline recall and precision."""
-        lines = [f"benchmark score @ {self.operating_point:g} FA/sat-year"]
+        """A human-readable per-class summary of the headline recall and precision, with CIs."""
+        lines = [f"benchmark score @ {self.operating_point:g} FA/sat-year ({self.ci_level:.0%} CI)"]
         for orbit_class in OrbitClass:
             metrics = self.per_class.get(orbit_class)
             if metrics is None:
                 continue
             lines.append(
-                f"  {orbit_class.value}: recall={_fmt(metrics.recall)} "
-                f"precision={_fmt(metrics.precision)} "
+                f"  {orbit_class.value}: "
+                f"recall={_fmt(metrics.recall)}{_fmt_ci(metrics.recall_ci)} "
+                f"precision={_fmt(metrics.precision)}{_fmt_ci(metrics.precision_ci)} "
                 f"(above-floor labels={metrics.n_labels_above_floor}, "
                 f"sat-years={metrics.sat_years:g})"
             )
@@ -95,12 +100,14 @@ def score(
     *,
     operating_point: float = DEFAULT_OPERATING_POINT,
     sweep: tuple[float, ...] = DEFAULT_SWEEP,
+    ci_level: float = DEFAULT_CI_LEVEL,
 ) -> ScoreReport:
     """Score ``predictions`` against held-out ``labels`` over the ``exposure`` population.
 
     ``predictions`` is the canonical maneuver frame (or a sequence of :class:`Maneuver`); ``labels``
     are the held-out labels tagged with their detectability-floor status; ``exposure`` is the scored
-    population (every prediction and label must belong to an object it lists). Returns a
+    population (every prediction and label must belong to an object it lists). ``ci_level`` (in
+    ``(0, 1)``) sets the confidence level of the per-class recall / precision intervals. Returns a
     deterministic :class:`ScoreReport` — the same inputs always yield the same numbers (D8).
     """
     detections = list(
@@ -108,9 +115,14 @@ def score(
     )
     matching = match_detections(detections, list(labels))
     per_class = class_metrics(
-        matching, list(exposure), operating_point=operating_point, sweep=sweep
+        matching, list(exposure), operating_point=operating_point, sweep=sweep, ci_level=ci_level
     )
-    return ScoreReport(operating_point=operating_point, sweep=tuple(sweep), per_class=per_class)
+    return ScoreReport(
+        operating_point=operating_point,
+        sweep=tuple(sweep),
+        ci_level=ci_level,
+        per_class=per_class,
+    )
 
 
 def read_predictions(text: str) -> list[Maneuver]:
@@ -167,8 +179,11 @@ def _class_payload(metrics: ClassMetrics) -> dict[str, object]:
         "n_labels_above_floor": metrics.n_labels_above_floor,
         "n_labels_total": metrics.n_labels_total,
         "operating_point": metrics.operating_point,
+        "ci_level": metrics.ci_level,
         "recall": metrics.recall,
+        "recall_ci": _ci_payload(metrics.recall_ci),
         "precision": metrics.precision,
+        "precision_ci": _ci_payload(metrics.precision_ci),
         "full_population_recall": metrics.full_population_recall,
         "pr_curve": [_pr_payload(point) for point in metrics.pr_curve],
         "confusion": _confusion_payload(metrics.confusion),
@@ -179,8 +194,15 @@ def _pr_payload(point: PRPoint) -> dict[str, object]:
     return {
         "fa_per_sat_year": point.fa_per_sat_year,
         "recall": point.recall,
+        "recall_ci": _ci_payload(point.recall_ci),
         "precision": point.precision,
+        "precision_ci": _ci_payload(point.precision_ci),
     }
+
+
+def _ci_payload(ci: tuple[float, float] | None) -> list[float] | None:
+    """Serialise a ``(low, high)`` confidence interval to a JSON list, or ``None`` if undefined."""
+    return None if ci is None else [ci[0], ci[1]]
 
 
 def _confusion_payload(confusion: Confusion) -> dict[str, dict[str, int]]:
@@ -195,3 +217,7 @@ def _confusion_payload(confusion: Confusion) -> dict[str, dict[str, int]]:
 
 def _fmt(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.3f}"
+
+
+def _fmt_ci(ci: tuple[float, float] | None) -> str:
+    return "" if ci is None else f" [{ci[0]:.3f}, {ci[1]:.3f}]"

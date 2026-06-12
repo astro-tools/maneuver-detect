@@ -297,3 +297,51 @@ def test_read_predictions_rejects_a_record_missing_a_canonical_field() -> None:
     bad = '[{"epoch": "2024-01-01T00:00:00+00:00", "confidence": 0.9}]'
     with pytest.raises(ValueError, match="missing canonical fields"):
         read_predictions(bad)
+
+
+# --- per-class confidence intervals -------------------------------------------------------------
+
+
+def test_report_carries_per_class_confidence_intervals_and_level() -> None:
+    report = score(_scenario_detections(), _scenario_labels(), _scenario_exposure())
+    assert report.ci_level == pytest.approx(0.95)
+
+    leo = report.per_class[OrbitClass.LEO]
+    assert leo.ci_level == pytest.approx(0.95)
+    assert leo.recall is not None
+    assert leo.recall_ci is not None
+    low, high = leo.recall_ci
+    assert low < leo.recall < high  # the headline estimate sits inside its interval
+
+    # MEO is a perfect 1-of-1: an honest interval whose upper bound is exactly 1.0, lower below it.
+    meo = report.per_class[OrbitClass.MEO]
+    assert meo.recall == pytest.approx(1.0)
+    assert meo.recall_ci is not None
+    assert meo.recall_ci[1] == pytest.approx(1.0)
+    assert meo.recall_ci[0] < 1.0
+
+    # GEO has no above-floor labels — its interval is undefined, not a spurious zero-width one.
+    assert report.per_class[OrbitClass.GEO].recall_ci is None
+
+
+def test_summary_shows_the_interval_and_its_level() -> None:
+    text = score(_scenario_detections(), _scenario_labels(), _scenario_exposure()).summary()
+    assert "95% CI" in text  # the header names the confidence level
+    assert "recall=0.667 [0.208, 0.939]" in text  # LEO carries its bracketed interval
+    assert "recall=n/a precision=n/a" in text  # an undefined estimate renders without a bracket
+
+
+def test_ci_level_is_configurable_and_widens_the_interval() -> None:
+    args = (_scenario_detections(), _scenario_labels(), _scenario_exposure())
+    narrow = score(*args, ci_level=0.90).per_class[OrbitClass.LEO].recall_ci
+    wide = score(*args, ci_level=0.99).per_class[OrbitClass.LEO].recall_ci
+    assert narrow is not None
+    assert wide is not None
+    assert wide[0] < narrow[0]
+    assert wide[1] > narrow[1]
+
+
+@pytest.mark.parametrize("bad", [0.0, 1.0, 1.5, -0.1])
+def test_invalid_ci_level_is_rejected(bad: float) -> None:
+    with pytest.raises(ValueError, match="ci_level"):
+        score(_scenario_detections(), _scenario_labels(), _scenario_exposure(), ci_level=bad)
