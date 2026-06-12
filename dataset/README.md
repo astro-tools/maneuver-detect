@@ -52,3 +52,14 @@ The GPS NANU archive is crawled over a year window — `--nanu-start-year` (defa
 `--nanu-end-year` (default: the current year) — so `labels.json` is a snapshot of that window.
 
 The raw fetched series is held only in the local cache; it is never written into this directory.
+
+## Licence
+
+The **authored dataset artifacts** — the recipe (`recipe.json`), the parsed label mapping
+(`labels.json`), the splits (`splits.json`), and the content-hash manifest (`manifest.json`) — are
+released under **[CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/)**. The underlying label
+sources pass through under their own terms: the DORIS/IDS `man.txt` maneuver files are open data, and
+the GPS NANU notices are US-Government public domain. The **raw Space-Track element history is not
+redistributed** under any licence — it is re-fetched locally from each user's own account under
+Space-Track's terms (the recipe-first model above). No model weights ship in this release.
+
