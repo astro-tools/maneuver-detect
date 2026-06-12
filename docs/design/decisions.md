@@ -1,12 +1,13 @@
-# maneuver-detect — v0.1 design decisions (D1–D10)
+# maneuver-detect — design decisions (D1–D11)
 
-The frozen decision record for v0.1, consolidating the prerequisite spikes (V1–V4, under
-[`spikes/`](spikes/)) and the project charter. **No implementation lands until it matches this record.**
-Each decision states the call and its rationale/source. The detailed, implementable benchmark contract
-lives in [`benchmark-protocol.md`](benchmark-protocol.md).
+The frozen decision record, consolidating the prerequisite spikes (under [`spikes/`](spikes/)) and the
+project charter. **No implementation lands until it matches this record.** Each decision states the call
+and its rationale/source. The detailed, implementable benchmark contract lives in
+[`benchmark-protocol.md`](benchmark-protocol.md).
 
-Status as of the design freeze: V1–V4 complete; D2–D5 are lifted from the merged spike records, D1 and
-D6–D10 from the charter and the spike implications.
+**D1–D10** are the v0.1 freeze (V1–V4): D2–D5 lifted from the merged spike records, D1 and D6–D10 from
+the charter and the spike implications. **D11** is the first v0.2 decision — the irregular-sampling input
+contract from V5, gating the learned baselines.
 
 ---
 
@@ -103,12 +104,42 @@ are unlicensed → dev-only.
 
 **GMAT-free** — no GMAT / gmatpy at runtime, in tests, or as a dependency; no setup-gmat. The
 foundation-model stack is an optional **`[foundation]`** extra (the base install excludes it). The charter
-validations **V5 (irregular-sampling model input), V6 (foundation-model applicability), and V7 (leaderboard
-integrity + compute budget) are deferred to their v0.2 / v0.3 milestones** — not v0.1.
+validations **V6 (foundation-model applicability) and V7 (leaderboard integrity + compute budget) are
+deferred to their v0.2 / v0.3 milestones**; **V5 (irregular-sampling model input) is resolved at v0.2 by
+D11.**
+
+---
+
+## D11 — Irregular-sampling input contract (V5) — *v0.2*
+
+The frozen encoding the feature layer emits and the BiLSTM/transformer baselines consume, from the V5
+comparison of three candidates on real labelled element series (LEO + GEO). **Encoding =
+time-encoded deltas, no interpolation.** Resample-to-grid is rejected — interpolating across the gap
+fabricates values on the very interval the maneuver lives in and **halves above-floor recall** (LEO
+0.86→0.74, GEO 0.44→0.19). A continuous-time recurrence is rejected for the baselines (no measured signal
+or leak advantage over deltas at the baseline tier); its **bounded `Δt` (time2vec) representation** is
+adopted as the deltas encoding's timing block. **Leak is handled at the protocol level, not the
+encoding:** `Δt` stays in the input (needed for step-rate + secular detrending) and carries only a modest,
+**structural** correlation with the label (timing-alone AUC ≈0.62 LEO / 0.68 GEO — not trivially
+separable, and rank-AUC-invariant so not removable by clipping/time2vec/daily-regularization); the
+benchmark therefore **reports a timing-only baseline as the "cheating floor" submissions must beat** and
+keeps the headline metric as **recall over the above-floor population** (D4/D7), where the element signal
+dominates. **Element deltas are fed signed** — the maneuver signal is in the step *magnitude* (a burn raises or
+lowers `a`/`i`/Ω, so a linear readout on signed deltas separates nothing; it is `|Δ|` that scores), but
+the non-linear model recovers magnitude itself and the sign carries burn direction for the D5 Δv-type
+classification. **Normalisation:** per-class robust (median/IQR) per channel, train-split statistics only;
+secular drift (J2 nodal regression / apsidal precession) removed by a two-sided local-linear fit before
+the delta (computed once per object series, not per gap); angles carried as the eccentricity vector
+`(h, k)` + unwrapped Ω (no wrap). The full tensor
+contract (channels, masking, windowing, shape) is specified in
+[`spikes/v5-irregular-sampling-encoding.md`](spikes/v5-irregular-sampling-encoding.md) — the feature layer
+implements it verbatim.
 
 ---
 
 *Sources: [`spikes/v1-dataset-redistribution.md`](spikes/v1-dataset-redistribution.md),
 [`spikes/v2-label-sources.md`](spikes/v2-label-sources.md),
 [`spikes/v3-detectability-floor.md`](spikes/v3-detectability-floor.md),
-[`spikes/v4-dv-inversion.md`](spikes/v4-dv-inversion.md), and the project charter.*
+[`spikes/v4-dv-inversion.md`](spikes/v4-dv-inversion.md),
+[`spikes/v5-irregular-sampling-encoding.md`](spikes/v5-irregular-sampling-encoding.md), and the project
+charter.*
