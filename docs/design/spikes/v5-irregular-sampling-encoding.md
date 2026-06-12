@@ -146,8 +146,9 @@ per-gap maneuver target attaches to that transition, D4). For object class *c* �
 **Channels** (all `float32`, per-class robust-normalised, train-split statistics):
 
 1. *Element levels* at the token's epoch — `a` (km), `e`, `sin i`, `cos i`, `h = e·cos ω`,
-   `k = e·sin ω`, and the secular-detrended residual of each (the level the local-linear fit predicts is
-   subtracted). Levels give absolute context; residuals give the anomaly.
+   `k = e·sin ω`, and the unwrapped node `Ω` (the angle channels carried as `(h, k)` + unwrapped `Ω`
+   per D11.3, so none wraps), plus the secular-detrended residual of each (the level the local-linear
+   fit predicts is subtracted). Levels give absolute context; residuals give the anomaly.
 2. *Element deltas across the gap to the previous token* — the **signed** level shift of each detrended
    channel above. The maneuver signal is in the *magnitude* of the step (Finding 2), but signed is fed so
    the sign carries burn direction for the D5 Δv-type classification; the model recovers magnitude itself.
@@ -189,7 +190,11 @@ https://github.com/dpshorten/TLE_observation_benchmark_dataset`, then `--data-di
   only, V2) — the contract applies to it by class normalisation, validated when MEO labels are scored.
 - The empirical base is mean-element steps from one catalogue; the credentialed Space-Track DORIS replay
   (the v0.1 real-eval path) is the cross-check when the feature layer lands.
-- Ratify D11 when the v0.2 feature layer is implemented against it.
+- **Ratified.** D11 is ratified by the v0.2 feature layer (`maneuver_detect/features/`), which emits
+  this contract verbatim: the seven base channels (`a`, `e`, `sin i`, `cos i`, `h`, `k`, unwrapped
+  `Ω`) with their secular-detrended residuals and signed gap deltas, the `time2vec(Δt)` timing block,
+  and the validity / `Δt`-saturation mask, windowed at `W = 64`. The detrend is the once-per-series
+  two-sided local-linear fit (not the per-gap recompute the implementation note warns against).
 
 ## References
 
