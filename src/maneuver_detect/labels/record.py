@@ -27,7 +27,9 @@ from maneuver_detect.schema import ManeuverType
 __all__ = [
     "COLUMNS",
     "SOURCE_DORIS_IDS",
+    "SOURCE_GALILEO_NAGU",
     "SOURCE_GPS_NANU",
+    "SOURCE_SELF_GEO",
     "ManeuverLabel",
     "OrbitClass",
     "to_frame",
@@ -38,6 +40,13 @@ __all__ = [
 SOURCE_DORIS_IDS = "DORIS-IDS"
 #: Source tag for the GPS NANU (Notice Advisory to Navstar Users) FCSTDV maneuver notices.
 SOURCE_GPS_NANU = "GPS-NANU"
+#: Source tag for the Galileo NAGU (Notice Advisory to Galileo Users) PLN_MANV maneuver notices —
+#: the second MEO operator feed (European GNSS Service Centre), epoch-only like the GPS NANUs.
+SOURCE_GALILEO_NAGU = "GALILEO-NAGU"
+#: Source tag for self-labelled GEO station-keeping epochs derived from the element series itself
+#: (longitude-drift inspection) — a **derived, best-effort** source, not an operator announcement,
+#: for the GEO class which has no public operator maneuver feed. See ``labels.longitude_shift``.
+SOURCE_SELF_GEO = "SELF-GEO"
 
 
 class OrbitClass(str, Enum):
