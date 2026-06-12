@@ -30,21 +30,27 @@ from maneuver_detect.benchmark.scoring import (
     score,
 )
 from maneuver_detect.benchmark.splits import (
+    DEFAULT_ERA_QUANTILES,
     DEFAULT_RATIOS,
     DEFAULT_SEED,
+    DEFAULT_TEMPORAL_GUARD,
     Split,
     SplitCounts,
     SplitName,
+    TemporalSplit,
     make_splits,
+    make_temporal_split,
     split_counts,
 )
 
 __all__ = [
     "DEFAULT_CI_LEVEL",
+    "DEFAULT_ERA_QUANTILES",
     "DEFAULT_OPERATING_POINT",
     "DEFAULT_RATIOS",
     "DEFAULT_SEED",
     "DEFAULT_SWEEP",
+    "DEFAULT_TEMPORAL_GUARD",
     "ClassMetrics",
     "Confusion",
     "DetectionMatch",
@@ -56,8 +62,10 @@ __all__ = [
     "Split",
     "SplitCounts",
     "SplitName",
+    "TemporalSplit",
     "class_metrics",
     "make_splits",
+    "make_temporal_split",
     "match_detections",
     "predictions_to_json",
     "read_predictions",
