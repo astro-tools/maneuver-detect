@@ -1,7 +1,7 @@
 # maneuver-detect dataset — recipe-first distribution
 
 This directory holds the **distributable** form of the labelled maneuver-detection dataset, one
-subdirectory per version (`v0.1/`, `v0.2/`, …). The dataset is published as a *recipe*, not as raw
+subdirectory per version (currently `v0.2/`). The dataset is published as a *recipe*, not as raw
 catalogue data: each user reconstructs the element-series locally from their own catalogue access,
 and a content-hash manifest makes that reconstruction verifiable bit-for-bit.
 

@@ -1,6 +1,6 @@
 """The dataset catalogue — the objects the recipe reconstructs, as public reference facts.
 
-Three classes (D3 + the v0.2 growth set, D13):
+Three classes (D3, extended by D13):
 
 - **LEO** — the DORIS/IDS satellites that publish a ``man.txt`` maneuver file *and* have a confident
   NORAD id: the altimetry missions (the Δv-labelled core) and the SPOT imaging satellites. A few
@@ -41,14 +41,11 @@ __all__ = [
     "GpsSatellite",
     "galileo_gsat_to_norad",
     "gps_svn_to_norad",
-    "v01_recipe",
-    "v02_recipe",
+    "recipe",
 ]
 
-#: The current dataset version (in lockstep with a later Hub release and the manifest — D8).
+#: The dataset version (in lockstep with a later Hub release and the manifest — D8).
 DATASET_VERSION = "0.2.0"
-#: The frozen v0.1 version — its recipe/labels/manifest/splits stay byte-stable as v0.2 grows.
-DATASET_VERSION_V01 = "0.1.0"
 
 
 @dataclass(frozen=True)
@@ -209,8 +206,8 @@ def galileo_gsat_to_norad() -> dict[str, int]:
     return {sat.gsat: sat.norad_id for sat in GALILEO_CONSTELLATION}
 
 
-def _v01_entries() -> list[RecipeEntry]:
-    """The v0.1 recipe entries — the LEO altimetry (DORIS/IDS) set + the GPS constellation."""
+def _base_entries() -> list[RecipeEntry]:
+    """The LEO altimetry (DORIS/IDS) set + the GPS constellation."""
     entries: list[RecipeEntry] = [
         RecipeEntry(
             norad_id=DORIS_SAT_TO_NORAD[code],
@@ -237,7 +234,7 @@ def _v01_entries() -> list[RecipeEntry]:
 
 
 def _galileo_entries() -> list[RecipeEntry]:
-    """The v0.2 Galileo MEO entries — NAGU PLN_MANV labels (``label_ref`` = GSAT id)."""
+    """The Galileo MEO entries — NAGU PLN_MANV labels (``label_ref`` = GSAT id)."""
     return [
         RecipeEntry(
             norad_id=sat.norad_id,
@@ -252,7 +249,7 @@ def _galileo_entries() -> list[RecipeEntry]:
 
 
 def _geo_entries() -> list[RecipeEntry]:
-    """The v0.2 GEO entries — labels self-derived from the series (``label_ref=""``)."""
+    """The GEO entries — labels self-derived from the series (``label_ref=""``)."""
     return [
         RecipeEntry(
             norad_id=norad_id,
@@ -266,28 +263,16 @@ def _geo_entries() -> list[RecipeEntry]:
     ]
 
 
-def _recipe(dataset_version: str, entries: list[RecipeEntry]) -> Recipe:
-    """Wrap ``entries`` in a NORAD-sorted :class:`Recipe` for stable serialisation."""
+def recipe(dataset_version: str = DATASET_VERSION) -> Recipe:
+    """The pinned reconstruction recipe — every catalogue object and its fetch/label parameters.
+
+    Three classes: the LEO altimetry (DORIS/IDS) set, the MEO constellations (GPS NANU + Galileo
+    NAGU labels), and the actively station-kept GEO satellites (labels self-derived from the series
+    by longitude-drift inspection). Every object fetches its multi-year series from Space-Track;
+    entries are ordered by NORAD id for a stable serialisation.
+    """
+    entries = _base_entries() + _galileo_entries() + _geo_entries()
     return Recipe(
         dataset_version=dataset_version,
         entries=tuple(sorted(entries, key=lambda entry: entry.norad_id)),
     )
-
-
-def v01_recipe(dataset_version: str = DATASET_VERSION_V01) -> Recipe:
-    """The pinned, frozen v0.1 recipe — the LEO altimetry set + the GPS constellation.
-
-    Every object fetches its multi-year series from Space-Track; LEO objects carry DORIS/IDS labels,
-    MEO objects carry GPS NANU labels. Stays byte-stable as v0.2 grows.
-    """
-    return _recipe(dataset_version, _v01_entries())
-
-
-def v02_recipe(dataset_version: str = DATASET_VERSION) -> Recipe:
-    """The pinned v0.2 reconstruction recipe — v0.1 plus the Galileo MEO and self-labelled GEO sets.
-
-    Extends :func:`v01_recipe` with the Galileo constellation (MEO, NAGU labels) and the
-    actively station-kept GEO satellites (labels self-derived from the series by longitude-drift
-    inspection). Entries are ordered by NORAD id for a stable serialisation.
-    """
-    return _recipe(dataset_version, _v01_entries() + _galileo_entries() + _geo_entries())

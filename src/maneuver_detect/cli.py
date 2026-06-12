@@ -34,7 +34,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "dataset":
         return _run_dataset_build(
             out_dir=args.out,
-            recipe_version=args.recipe_version,
             nanu_start_year=args.nanu_start_year,
             nanu_end_year=args.nanu_end_year,
         )
@@ -123,12 +122,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--out",
         required=True,
         help="output directory for recipe.json, labels.json, and manifest.json",
-    )
-    build_parser.add_argument(
-        "--recipe-version",
-        choices=["0.1.0", "0.2.0"],
-        default="0.2.0",
-        help="which pinned recipe to reconstruct (default: %(default)s)",
     )
     build_parser.add_argument(
         "--nanu-start-year",
@@ -230,10 +223,8 @@ def _render(result: pd.DataFrame, output_format: str) -> str:
     return result.to_string(index=False)
 
 
-def _run_dataset_build(
-    out_dir: str, recipe_version: str, nanu_start_year: int, nanu_end_year: int | None
-) -> int:
-    """Reconstruct the dataset for ``recipe_version`` and write recipe / labels / manifest."""
+def _run_dataset_build(out_dir: str, nanu_start_year: int, nanu_end_year: int | None) -> int:
+    """Reconstruct the dataset and write recipe / labels / manifest."""
     import logging
     import sys
     from datetime import datetime, timezone
@@ -243,7 +234,7 @@ def _run_dataset_build(
     from maneuver_detect.data.ratelimit import RateLimiter
     from maneuver_detect.data.spacetrack import SpacetrackFetcher
     from maneuver_detect.datasets.build import build_dataset, fetch_labels
-    from maneuver_detect.datasets.catalogue import v01_recipe, v02_recipe
+    from maneuver_detect.datasets.catalogue import recipe
     from maneuver_detect.labels.record import OrbitClass
 
     # A build is a long run (a NANU-archive crawl plus a per-object Space-Track fetch), so surface
@@ -255,26 +246,26 @@ def _run_dataset_build(
     progress.setLevel(logging.INFO)
 
     end_year = nanu_end_year if nanu_end_year is not None else datetime.now(tz=timezone.utc).year
-    recipe = v01_recipe() if recipe_version == "0.1.0" else v02_recipe()
+    dataset_recipe = recipe()
     headers = {"User-Agent": f"maneuver-detect/{__version__}"}
     progress.info(
         "fetching labels (NANU archive %d-%d), then %d series...",
         nanu_start_year,
         end_year,
-        len(recipe.entries),
+        len(dataset_recipe.entries),
     )
     with httpx.Client(timeout=60.0, headers=headers, follow_redirects=True) as client:
         labels = fetch_labels(
-            recipe,
+            dataset_recipe,
             client,
             nanu_start_year=nanu_start_year,
             nanu_end_year=end_year,
             rate_limiter=RateLimiter(1.0),
         )
         with SpacetrackFetcher() as fetcher:
-            report = build_dataset(recipe, fetcher, labels, out_dir)
+            report = build_dataset(dataset_recipe, fetcher, labels, out_dir)
 
-    counts = recipe.per_class_counts()
+    counts = dataset_recipe.per_class_counts()
     print(
         f"reconstructed {report.n_objects} objects "
         f"(LEO {counts[OrbitClass.LEO]}, MEO {counts[OrbitClass.MEO]}, "
