@@ -39,7 +39,14 @@ jobs:
         run: uv sync --all-groups
 
       - name: Run pytest
-        run: uv run pytest --cov --cov-report=term-missing
+        run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=80
+
+      - name: Enforce the DoD coverage floor on the benchmark-critical layers (data / labels / benchmark >= 95%)
+        if: runner.os == 'Linux'
+        run: >-
+          uv run coverage report
+          --include='src/maneuver_detect/data/*,src/maneuver_detect/labels/*,src/maneuver_detect/benchmark/*'
+          --fail-under=95
 
   lint:
     name: lint
