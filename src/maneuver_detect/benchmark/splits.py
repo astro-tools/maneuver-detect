@@ -16,17 +16,22 @@ component (everything in one split). The literal leak vector D7 names is an over
 that is what this guards.
 
 Components are packed into splits largest-first toward target label-count ratios (default
-70 / 15 / 15), each going to whichever split is furthest below its target. The packing is
-deterministic; ``seed`` only orders equal-size components, so a frozen split is reproducible
-byte-for-byte (D8) and :func:`make_splits` on the same labels yields the committed ``splits.json``
-exactly.
+70 / 15 / 15), each going to whichever split is furthest below its target. ``make_splits(...,
+stratified=True)`` instead aims those ratios **within each orbit class**, sending each component to
+the split whose per-class balance it least disturbs. Either way packing is deterministic; ``seed``
+only orders equal-size components, so a frozen split reproduces byte-for-byte (D8): once a version's
+split is committed, :func:`make_splits` on that version's labels yields it exactly.
+
+Both modes pack *whole* components, so neither can rebalance a catalogue that collapses into
+one overlap-component (e.g. dense, same-era GEO station-keeping whose windows all overlap) —
+that takes a different split *construction*, not a different packing.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -68,10 +73,13 @@ class _Component:
     Attributes:
         norad_ids: The objects in the component (sorted), all bound to the same split.
         n_events: The number of maneuver labels the component carries (its packing weight).
+        events_by_class: The label count split by :class:`OrbitClass` (sums to ``n_events``, keyed
+            in canonical class order) — the per-class weight the stratified packer balances.
     """
 
     norad_ids: tuple[int, ...]
     n_events: int
+    events_by_class: dict[OrbitClass, int]
 
 
 @dataclass(frozen=True)
@@ -165,10 +173,13 @@ def _overlap_components(labels: Sequence[ManeuverLabel]) -> list[_Component]:
     already the same node, so a satellite is always wholly within one component.
     """
     events: dict[int, int] = {}
+    class_events: dict[int, dict[OrbitClass, int]] = {}
     for label in labels:
         if label.norad_id is None:
             continue
         events[label.norad_id] = events.get(label.norad_id, 0) + 1
+        per_object = class_events.setdefault(label.norad_id, {})
+        per_object[label.orbit_class] = per_object.get(label.orbit_class, 0) + 1
 
     parent: dict[int, int] = {norad_id: norad_id for norad_id in events}
 
@@ -202,13 +213,21 @@ def _overlap_components(labels: Sequence[ManeuverLabel]) -> list[_Component]:
     members: dict[int, list[int]] = {}
     for norad_id in events:
         members.setdefault(find(norad_id), []).append(norad_id)
-    return [
-        _Component(
-            norad_ids=tuple(sorted(group)),
-            n_events=sum(events[norad_id] for norad_id in group),
+
+    components: list[_Component] = []
+    for group in members.values():
+        combined: dict[OrbitClass, int] = {}
+        for norad_id in group:
+            for orbit_class, count in class_events[norad_id].items():
+                combined[orbit_class] = combined.get(orbit_class, 0) + count
+        components.append(
+            _Component(
+                norad_ids=tuple(sorted(group)),
+                n_events=sum(events[norad_id] for norad_id in group),
+                events_by_class={oc: combined[oc] for oc in OrbitClass if oc in combined},
+            )
         )
-        for group in members.values()
-    ]
+    return components
 
 
 def _tiebreak(seed: int, norad_id: int) -> str:
@@ -239,12 +258,80 @@ def _pack(
     return assigned
 
 
+def _imbalance_increase(
+    placed: Mapping[OrbitClass, int],
+    target: Mapping[OrbitClass, float],
+    events_by_class: Mapping[OrbitClass, int],
+    class_totals: Mapping[OrbitClass, int],
+) -> float:
+    """The rise in summed squared *relative* per-class deviation from placing a component here.
+
+    Only the classes the component carries can change, so the sum runs over just those. Each class's
+    squared deviation is divided by that class's squared total event count, making every class's
+    contribution scale-free — a small class (few labels) is balanced as hard as a large one rather
+    than swamped by it.
+    """
+    increase = 0.0
+    for orbit_class, n_events in events_by_class.items():
+        norm = class_totals[orbit_class]  # > 0: the class occurs in at least this component
+        before = placed[orbit_class] - target[orbit_class]
+        after = before + n_events
+        increase += (after * after - before * before) / (norm * norm)
+    return increase
+
+
+def _pack_stratified(
+    components: Iterable[_Component], ratios: tuple[float, float, float], seed: int
+) -> dict[SplitName, set[int]]:
+    """Greedily assign whole components toward the target ``ratios`` *within each orbit class*.
+
+    Like :func:`_pack`, components are ordered largest-first (the seeded key breaks ties) and placed
+    one at a time; but each goes to the split whose per-class balance it least worsens — the one
+    minimising :func:`_imbalance_increase` against per-class targets ``ratio * class_total``. The
+    arithmetic is integer-derived and summed in a fixed (canonical class) order, so the choice is
+    deterministic and byte-stable for a given seed (D8); an exact tie favours TRAIN > VAL > TEST,
+    mirroring :func:`_pack`.
+
+    Packing whole components cannot subdivide one, so a catalogue that collapses into a single
+    overlap-component stays in one split under this mode too — rebalancing that needs a different
+    split *construction*, not a different packing.
+    """
+    ordered = sorted(components, key=lambda c: (-c.n_events, _tiebreak(seed, c.norad_ids[0])))
+    class_totals: dict[OrbitClass, int] = {}
+    for component in ordered:
+        for orbit_class, n_events in component.events_by_class.items():
+            class_totals[orbit_class] = class_totals.get(orbit_class, 0) + n_events
+    targets: dict[SplitName, dict[OrbitClass, float]] = {
+        name: {orbit_class: ratio * total for orbit_class, total in class_totals.items()}
+        for name, ratio in zip(SplitName, ratios, strict=True)
+    }
+
+    assigned: dict[SplitName, set[int]] = {name: set() for name in SplitName}
+    placed: dict[SplitName, dict[OrbitClass, int]] = {
+        name: dict.fromkeys(class_totals, 0) for name in SplitName
+    }
+    for component in ordered:
+        target = SplitName.TRAIN
+        best = float("inf")
+        for name in SplitName:  # canonical order, so an exact tie favours TRAIN > VAL > TEST
+            increase = _imbalance_increase(
+                placed[name], targets[name], component.events_by_class, class_totals
+            )
+            if increase < best:
+                best, target = increase, name
+        assigned[target].update(component.norad_ids)
+        for orbit_class, n_events in component.events_by_class.items():
+            placed[target][orbit_class] += n_events
+    return assigned
+
+
 def make_splits(
     labels: Sequence[ManeuverLabel],
     *,
     dataset_version: str = DATASET_VERSION,
     seed: int = DEFAULT_SEED,
     ratios: tuple[float, float, float] = DEFAULT_RATIOS,
+    stratified: bool = False,
 ) -> Split:
     """Partition the objects in ``labels`` into a leak-free train / val / test :class:`Split`.
 
@@ -252,6 +339,11 @@ def make_splits(
     split), and each object lands wholly in one split (so no satellite crosses). ``ratios`` are the
     target ``(train, val, test)`` label-count fractions; ``seed`` orders equal-size components for a
     reproducible, byte-stable split (D8). Labels with no ``norad_id`` are ignored.
+
+    By default the packer balances the *total* label count across splits. Pass ``stratified=True``
+    to aim the ``ratios`` **within each orbit class** instead, so per-class val/test shares are
+    targeted rather than incidental. Both modes hold the leak-free guarantees and are byte-stable
+    per seed.
     """
     if len(ratios) != 3:
         raise ValueError(f"ratios must have three entries, got {len(ratios)}")
@@ -260,7 +352,12 @@ def make_splits(
     if sum(ratios) <= 0:
         raise ValueError("ratios must sum to a positive value")
 
-    assigned = _pack(_overlap_components(labels), ratios, seed)
+    components = _overlap_components(labels)
+    assigned = (
+        _pack_stratified(components, ratios, seed)
+        if stratified
+        else _pack(components, ratios, seed)
+    )
     return Split(
         dataset_version=dataset_version,
         seed=seed,
