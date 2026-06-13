@@ -43,6 +43,7 @@ def train_bilstm(
     threshold: float = 0.5,
     accelerator: str = "auto",
     deterministic: bool | Literal["warn"] = True,
+    progress: bool = False,
     metadata: dict[str, Any] | None = None,
 ) -> ModelBundle:
     """Train a BiLSTM on ``train_objects`` and return its frozen :class:`ModelBundle`.
@@ -58,6 +59,10 @@ def train_bilstm(
     reproducibility (CPU, and CUDA with ``CUBLAS_WORKSPACE_CONFIG`` set), but cuDNN's LSTM has no
     deterministic backward, so a GPU run that hits that error should pass ``"warn"`` to fall back to
     seed-level reproducibility (the seed is still recorded on the bundle).
+
+    ``progress`` enables the Lightning progress bar (which surfaces the per-step train loss) and the
+    model summary — useful for a long interactive run. It defaults to ``False`` so tests, CI, and
+    headless runs stay quiet.
     """
     from maneuver_detect.features.windows import STRIDE, WINDOW
 
@@ -89,8 +94,8 @@ def train_bilstm(
         deterministic=deterministic,
         logger=False,
         enable_checkpointing=False,
-        enable_progress_bar=False,
-        enable_model_summary=False,
+        enable_progress_bar=progress,
+        enable_model_summary=progress,
         # No validation set: skip validation entirely (the data module returns an empty val loader).
         limit_val_batches=1.0 if validate else 0,
         num_sanity_val_steps=2 if validate else 0,
