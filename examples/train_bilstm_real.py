@@ -90,7 +90,7 @@ def main() -> int:
     from maneuver_detect.models.checkpoint import save_bundle
     from maneuver_detect.models.datamodule import objects_from_labelled_dataset
     from maneuver_detect.models.evaluate import score_on_temporal_split
-    from maneuver_detect.models.train import train_bilstm
+    from maneuver_detect.models.train import ValBenchmark, train_bilstm
 
     epochs = int(os.environ.get("MANEUVER_DETECT_TRAIN_EPOCHS", str(_DEFAULT_EPOCHS)))
     labels_by_norad = _load_labels_by_norad(_DATA / "labels.json")
@@ -99,6 +99,7 @@ def main() -> int:
     print("Reconstructing the v0.2 dataset from Space-Track (credentialed, rate-limited)...")
     dataset = reconstruct(recipe(), SpacetrackFetcher(), labels_by_norad)
     sliced = objects_from_labelled_dataset(dataset, split)
+    series_by_norad = {obj.norad_id: obj.series for obj in dataset.objects}
     print(
         f"objects  train={len(sliced['train'])}  "
         f"val={len(sliced['val'])}  test={len(sliced['test'])}"
@@ -114,7 +115,11 @@ def main() -> int:
         accelerator="auto",
         deterministic="warn",  # cuDNN LSTM has no deterministic backward; stay seed-level on GPU
         progress=True,  # a multi-minute interactive run, so show the bar + per-step loss
-        early_stopping=True,  # keep the best-val_loss epoch, not the last (most over-trained) one
+        # Select the checkpoint on the val-split benchmark recall (the metric we publish), not the
+        # BCE val_loss surrogate (which bottoms out fast and undertrains the GEO signal).
+        val_benchmark=ValBenchmark(
+            series_by_norad=series_by_norad, labels=dataset.labels, split=split
+        ),
         metadata={"dataset_version": "0.2.0"},
     )
     gpu_hours = (time.time() - started) / 3600.0
@@ -124,7 +129,6 @@ def main() -> int:
     print(f"checkpoint -> {out}  (trained in {gpu_hours:.2f} GPU-hours)")
 
     # Score the held-out test split through the benchmark (the model-card / leaderboard numbers).
-    series_by_norad = {obj.norad_id: obj.series for obj in dataset.objects}
     report = score_on_temporal_split(
         BiLstmDetector(bundle), series_by_norad, dataset.labels, split, partition=SplitName.TEST
     )
