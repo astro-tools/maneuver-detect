@@ -25,13 +25,16 @@ from torch import nn
 
 from maneuver_detect.models.bilstm import NETWORK_KIND as BILSTM_KIND
 from maneuver_detect.models.bilstm import build_bilstm
+from maneuver_detect.models.transformer import NETWORK_KIND as TRANSFORMER_KIND
+from maneuver_detect.models.transformer import build_transformer
 
 __all__ = ["ModelBundle", "build_network", "load_bundle", "save_bundle"]
 
-# The network factories keyed by the bundle's ``network`` tag. The transformer baseline registers
-# its own factory here so the same loader rebuilds either architecture.
+# The network factories keyed by the bundle's ``network`` tag, so the same loader rebuilds either
+# architecture from its stored config.
 _NETWORK_FACTORIES: dict[str, Callable[[dict[str, Any]], nn.Module]] = {
     BILSTM_KIND: build_bilstm,
+    TRANSFORMER_KIND: build_transformer,
 }
 
 

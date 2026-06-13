@@ -11,7 +11,8 @@ one tested path rather than an ad-hoc script.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -33,9 +34,18 @@ from maneuver_detect.labels.record import ManeuverLabel
 from maneuver_detect.physics import orbit_class_of
 from maneuver_detect.schema import Maneuver, ManeuverType, from_frame
 
-__all__ = ["score_on_temporal_split"]
+__all__ = [
+    "DEFAULT_THRESHOLD_SWEEP",
+    "ThresholdTuning",
+    "pooled_above_floor_recall",
+    "score_on_temporal_split",
+    "tune_threshold_on_val",
+]
 
 _SECONDS_PER_YEAR = 365.25 * 86400.0
+
+#: The default per-gap detection thresholds :func:`tune_threshold_on_val` searches over.
+DEFAULT_THRESHOLD_SWEEP: tuple[float, ...] = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 
 # Which era each partition draws from (oldest -> newest), matching TemporalSplit's construction.
 _PARTITION_ERA: dict[SplitName, int] = {
@@ -131,3 +141,83 @@ def score_on_temporal_split(
         sweep=sweep,
         ci_level=ci_level,
     )
+
+
+def pooled_above_floor_recall(report: ScoreReport) -> float:
+    """Above-floor recall pooled across classes, weighted by each class's above-floor label count.
+
+    A single scalar to maximise: the label-count-weighted mean of the per-class recalls, i.e. the
+    overall above-floor recall. Classes with no above-floor labels (or an undefined recall) are
+    skipped; an empty population scores ``0.0``. This is the selection objective the val-benchmark
+    checkpoint selection and the threshold tuner both maximise.
+    """
+    hit = 0.0
+    total = 0
+    for metrics in report.per_class.values():
+        if metrics.recall is not None and metrics.n_labels_above_floor > 0:
+            hit += metrics.recall * metrics.n_labels_above_floor
+            total += metrics.n_labels_above_floor
+    return hit / total if total else 0.0
+
+
+@dataclass(frozen=True)
+class ThresholdTuning:
+    """The outcome of a val-split threshold search.
+
+    Attributes:
+        threshold: The per-gap detection threshold with the best pooled above-floor recall on the
+            scored partition (the lowest such threshold on a tie, favouring recall).
+        recall: That best pooled above-floor recall.
+        by_threshold: The pooled recall at every candidate threshold, for provenance / inspection.
+    """
+
+    threshold: float
+    recall: float
+    by_threshold: dict[float, float]
+
+
+def tune_threshold_on_val(
+    make_detector: Callable[[float], Detector],
+    series_by_norad: Mapping[int, pd.DataFrame],
+    labels: Sequence[ManeuverLabel],
+    split: TemporalSplit,
+    *,
+    candidates: Sequence[float] = DEFAULT_THRESHOLD_SWEEP,
+    partition: SplitName = SplitName.VAL,
+    operating_point: float = DEFAULT_OPERATING_POINT,
+    sweep: tuple[float, ...] = DEFAULT_SWEEP,
+) -> ThresholdTuning:
+    """Pick the per-gap threshold that maximises pooled above-floor recall on a held-out partition.
+
+    A trained model fixes its weights but not its decision threshold; the right threshold is a
+    selection on held-out data, not a guess. For each ``candidate`` this builds a detector at that
+    threshold (``make_detector(threshold)``) and scores the partition (the val split by default)
+    through the same benchmark the leaderboard uses — era-scoped labels, in-era detections, per-type
+    floor, recall reported at ``operating_point`` false-alarms/satellite-year — then keeps the
+    threshold with the best :func:`pooled_above_floor_recall`. Because recall is measured *at* a
+    fixed false-alarm budget, a flood of low-threshold detections does not trivially win, so the
+    search trades recall against precision the way the published metric does. Re-freeze the chosen
+    threshold into the bundle (``dataclasses.replace(bundle, threshold=...)``) before scoring test.
+
+    Raises:
+        ValueError: if ``candidates`` is empty.
+    """
+    if not candidates:
+        raise ValueError("candidates must be non-empty")
+
+    by_threshold: dict[float, float] = {}
+    for candidate in candidates:
+        report = score_on_temporal_split(
+            make_detector(candidate),
+            series_by_norad,
+            labels,
+            split,
+            partition=partition,
+            operating_point=operating_point,
+            sweep=sweep,
+        )
+        by_threshold[candidate] = pooled_above_floor_recall(report)
+
+    # Best recall, breaking ties towards the lower threshold (favouring recall over precision).
+    best = max(by_threshold, key=lambda t: (by_threshold[t], -t))
+    return ThresholdTuning(threshold=best, recall=by_threshold[best], by_threshold=by_threshold)
