@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import torch
 
 from _synthetic import Burn, object_series, synthetic_series
@@ -92,6 +93,37 @@ def test_train_with_progress_runs() -> None:
         progress=True,
     )
     assert bundle.network_config["network"] == "bilstm"
+
+
+def test_early_stopping_restores_best_and_records_metadata() -> None:
+    # With a validation set, early stopping monitors val_loss, restores the best epoch's weights,
+    # and records the best val_loss on the bundle (a few epochs is enough to exercise the callback).
+    val = [object_series(norad_id=9, seed=9, burns=(Burn(45, "in_track_ms", 4.0),), n=90)]
+    bundle = train_bilstm(
+        _train_objects(),
+        val,
+        config=_CONFIG,
+        max_epochs=3,
+        seed=0,
+        window=32,
+        stride=16,
+        batch_size=8,
+        accelerator="cpu",
+        early_stopping=True,
+        patience=2,
+    )
+    assert isinstance(bundle.metadata["best_val_loss"], float)
+
+
+def test_early_stopping_requires_a_validation_set() -> None:
+    with pytest.raises(ValueError, match="early_stopping requires a validation set"):
+        train_bilstm(
+            _train_objects(),
+            config=_CONFIG,
+            max_epochs=1,
+            accelerator="cpu",
+            early_stopping=True,
+        )
 
 
 def test_train_accepts_warn_determinism() -> None:

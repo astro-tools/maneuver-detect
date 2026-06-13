@@ -114,6 +114,7 @@ def main() -> int:
         accelerator="auto",
         deterministic="warn",  # cuDNN LSTM has no deterministic backward; stay seed-level on GPU
         progress=True,  # a multi-minute interactive run, so show the bar + per-step loss
+        early_stopping=True,  # keep the best-val_loss epoch, not the last (most over-trained) one
         metadata={"dataset_version": "0.2.0"},
     )
     gpu_hours = (time.time() - started) / 3600.0
