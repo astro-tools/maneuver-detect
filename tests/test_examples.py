@@ -59,6 +59,17 @@ def test_detect_norad_guides_without_credentials() -> None:
     assert "SPACETRACK_PASSWORD" in result.stdout
 
 
+def test_train_bilstm_real_guides_without_credentials() -> None:
+    env = os.environ.copy()
+    env.pop("SPACETRACK_USERNAME", None)
+    env.pop("SPACETRACK_PASSWORD", None)
+    result = _run("train_bilstm_real.py", env=env)
+    assert result.returncode == 0, result.stderr
+    # The credentialed run needs Space-Track; with none it guides rather than failing or hanging.
+    assert "SPACETRACK_USERNAME" in result.stdout
+    assert "SPACETRACK_PASSWORD" in result.stdout
+
+
 def test_example_stdout_stays_ascii() -> None:
     # The example output is smoke-tested on a cp1252 Windows console, so it must stay ASCII
     # (the delta-v column prints as ``delta_v_estimate``, never a literal Greek delta).
