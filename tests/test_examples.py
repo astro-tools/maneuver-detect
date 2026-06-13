@@ -39,6 +39,15 @@ def test_reproduce_baseline_runs_and_scores() -> None:
     assert "above-floor maneuver labels" in result.stdout
 
 
+def test_train_bilstm_example_trains_and_scores() -> None:
+    result = _run("train_bilstm.py")
+    assert result.returncode == 0, result.stderr
+    # Trains the BiLSTM on a synthetic population and scores it through the benchmark.
+    assert "recall" in result.stdout
+    assert "precision" in result.stdout
+    assert "detections" in result.stdout
+
+
 def test_detect_norad_guides_without_credentials() -> None:
     env = os.environ.copy()
     env.pop("SPACETRACK_USERNAME", None)

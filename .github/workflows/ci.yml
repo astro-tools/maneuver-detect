@@ -104,10 +104,11 @@ jobs:
           print("foundation stack absent from base install")
           PY
 
-  # CPU-only model-loading smoke: the modelling stack imports on a CPU runner. Checkpoint
-  # loading is exercised here once checkpoints ship.
+  # CPU-only model smoke: the modelling stack imports and the BiLSTM baseline constructs and runs
+  # a forward pass on a CPU runner (no GPU, no data). The full train -> checkpoint -> detect loop
+  # is covered by the `test` job; this is the fast import/construct guard.
   model-smoke:
-    name: model-loading smoke (CPU)
+    name: model smoke (CPU)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -121,6 +122,7 @@ jobs:
           cache-dependency-glob: uv.lock
       - run: uv sync --all-groups
       - run: uv run python -c "import maneuver_detect, torch, lightning; print('torch', torch.__version__)"
+      - run: uv run pytest -m smoke
 
   # Scorer-determinism + dataset-reconstruction checks. Wired as the `benchmark` marker; the
   # real fixtures grow with the dataset and benchmark layers.
