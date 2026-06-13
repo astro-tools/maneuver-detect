@@ -12,6 +12,7 @@ from __future__ import annotations
 from maneuver_detect.detectors.base import Detector
 
 __all__ = [
+    "BiLstmDetector",
     "ClassicalDetector",
     "Detector",
     "available_models",
@@ -56,9 +57,13 @@ def available_models() -> list[str]:
     return sorted(_REGISTRY)
 
 
-# Register the built-in detectors. The import sits at the foot of the module — after the registry
-# helpers — so importing the package both exposes the registry API and registers the classical
-# detector, making it available to ``detect()`` without the caller importing its module.
+# Register the built-in detectors. The imports sit at the foot of the module — after the registry
+# helpers — so importing the package both exposes the registry API and registers the detectors,
+# making them available to ``detect()`` without the caller importing their modules. The learned
+# detector defers its torch / model imports to construction time, so registering it here keeps
+# ``import maneuver_detect`` (and the classical path) free of the modelling stack.
+from maneuver_detect.detectors.bilstm import BiLstmDetector  # noqa: E402
 from maneuver_detect.detectors.classical import ClassicalDetector  # noqa: E402
 
 register_detector(ClassicalDetector)
+register_detector(BiLstmDetector)
