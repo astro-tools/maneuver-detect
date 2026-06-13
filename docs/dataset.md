@@ -30,6 +30,12 @@ maneuver-detect dataset build --out dataset/
 # writes recipe.json, labels.json, and manifest.json
 ```
 
+The recipe, labels, manifest, and splits are also published to the
+[Hugging Face Hub](https://huggingface.co/datasets/astro-tools/maneuver-detect) and downloadable on
+first use — `datasets.load_recipe()`, `datasets.load_manifest()`, `datasets.load_labels()`, or
+`datasets.fetch_dataset()` for the whole snapshot. You still reconstruct the element series locally
+from your own account; the manifest verifies it. See [Models and the Hub](models.md).
+
 ## What is in the v0.1 dataset
 
 Two orbit classes, matching the v0.1 label scope:

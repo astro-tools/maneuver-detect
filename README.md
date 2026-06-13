@@ -63,9 +63,12 @@ runs the classical detector through the benchmark scorer on a labelled series.
   detection-matching rule, the per-class metric (precision/recall at a fixed false-alarm rate), and
   a deterministic scorer that reproduces the published numbers from a committed predictions file.
 
-v0.1 ships the dataset recipe, the classical detector, and the local scorer. A hosted leaderboard,
-and Hugging Face Hub distribution of the dataset and learned-model checkpoints, are planned for a
-later release. The
+The dataset and the learned-model checkpoints are distributed through the
+[Hugging Face Hub](https://huggingface.co/astro-tools): `detect(history, model="bilstm-base")` (or
+`"transformer-base"`) pulls the checkpoint on first use — CPU-only, cached on disk, nothing fetched at
+install time — and the dataset is downloadable with the `datasets` accessor (see
+[Models and the Hub](https://astro-tools.github.io/maneuver-detect/models/)). A hosted public
+leaderboard is planned. The
 [dataset](https://astro-tools.github.io/maneuver-detect/dataset/) and
 [benchmark](https://astro-tools.github.io/maneuver-detect/benchmark/) references document the source
 terms and the full protocol.

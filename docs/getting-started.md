@@ -30,8 +30,9 @@ maneuvers = detect(history, model="classical")
 
 Each row of the returned DataFrame is one detected maneuver: the detection `epoch` (UTC), a calibrated
 `confidence` in `[0, 1]`, the maneuver `type` (in-track / cross-track / radial), a `delta_v_estimate` in m/s,
-and the provenance (`norad_id` and the bounding elset epochs). `"classical"` is the default model and the only
-one in v0.1; the [output schema reference](schema.md) documents every column. See the
+and the provenance (`norad_id` and the bounding elset epochs). `"classical"` is the default model; the learned
+`"bilstm-base"` and `"transformer-base"` models load their checkpoints from the Hugging Face Hub on first use
+(see [Models and the Hub](models.md)). The [output schema reference](schema.md) documents every column. See the
 [detect-on-a-NORAD-id example](https://github.com/astro-tools/maneuver-detect/blob/main/examples/detect_norad.py)
 for a runnable version.
 
@@ -99,6 +100,7 @@ terms in full.
 ## Where to next
 
 - The [dataset and label sources](dataset.md) — what is in the dataset and the terms of every source.
+- [Models and the Hub](models.md) — the learned detectors, how `detect(model=…)` loads from the Hub, and caching.
 - The [benchmark protocol](benchmark.md) — the splits, the matching rule, and the metric a method is scored on.
 - The [output schema and Δv inversion](schema.md) — the columns `detect` returns and the physics behind them.
 - The [API reference](api.md) — the full public surface.
