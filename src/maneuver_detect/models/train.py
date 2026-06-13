@@ -20,6 +20,9 @@ from collections.abc import Sequence
 from typing import Any, Literal
 
 import lightning as L
+import torch
+from lightning.pytorch.callbacks import Callback, EarlyStopping
+from torch import nn
 
 from maneuver_detect.models.bilstm import NETWORK_KIND, BiLstmConfig, BiLstmNetwork
 from maneuver_detect.models.checkpoint import ModelBundle
@@ -27,6 +30,39 @@ from maneuver_detect.models.datamodule import ElementSeriesDataModule, ObjectSer
 from maneuver_detect.models.module import SequenceDetectorModule, TrainHyperParams
 
 __all__ = ["train_bilstm"]
+
+
+class _RestoreBestWeights(Callback):
+    """Keep the lowest-``val_loss`` network weights and restore them at the end of training.
+
+    Lightning's default keeps the *last* epoch's weights; on a small dataset that is the most
+    over-trained state. This callback snapshots the network ``state_dict`` (on CPU) whenever the
+    validation loss improves, so :func:`train_bilstm` can restore the best epoch before freezing the
+    bundle. The sanity-check pass (an untrained validation run before epoch 0) is skipped.
+    """
+
+    def __init__(self) -> None:
+        self.best_score: float | None = None
+        self._best_state: dict[str, torch.Tensor] | None = None
+
+    def on_validation_epoch_end(self, trainer: Any, pl_module: Any) -> None:
+        if trainer.sanity_checking:
+            return
+        metric = trainer.callback_metrics.get("val_loss")
+        if metric is None:
+            return
+        score = float(metric)
+        if self.best_score is None or score < self.best_score:
+            self.best_score = score
+            self._best_state = {
+                key: value.detach().cpu().clone()
+                for key, value in pl_module.network.state_dict().items()
+            }
+
+    def restore(self, network: nn.Module) -> None:
+        """Load the best-seen weights into ``network`` (a no-op if validation never ran)."""
+        if self._best_state is not None:
+            network.load_state_dict(self._best_state)
 
 
 def train_bilstm(
@@ -44,6 +80,8 @@ def train_bilstm(
     accelerator: str = "auto",
     deterministic: bool | Literal["warn"] = True,
     progress: bool = False,
+    early_stopping: bool = False,
+    patience: int = 10,
     metadata: dict[str, Any] | None = None,
 ) -> ModelBundle:
     """Train a BiLSTM on ``train_objects`` and return its frozen :class:`ModelBundle`.
@@ -63,6 +101,11 @@ def train_bilstm(
     ``progress`` enables the Lightning progress bar (which surfaces the per-step train loss) and the
     model summary — useful for a long interactive run. It defaults to ``False`` so tests, CI, and
     headless runs stay quiet.
+
+    ``early_stopping`` monitors ``val_loss`` to stop once it stops improving for ``patience`` epochs
+    and restores the best epoch's weights before the bundle is frozen (the default keeps the last
+    epoch's — the most over-trained on a small dataset). It needs a validation set, records the best
+    ``val_loss`` in the bundle metadata, and defaults to ``False`` (unchanged behaviour).
     """
     from maneuver_detect.features.windows import STRIDE, WINDOW
 
@@ -87,6 +130,18 @@ def train_bilstm(
     module = SequenceDetectorModule(network, hparams)
 
     validate = bool(val_objects)
+    if early_stopping and not validate:
+        raise ValueError("early_stopping requires a validation set (val_objects)")
+
+    callbacks: list[Callback] = []
+    best_weights: _RestoreBestWeights | None = None
+    if early_stopping:
+        best_weights = _RestoreBestWeights()
+        callbacks = [
+            EarlyStopping(monitor="val_loss", mode="min", patience=patience),
+            best_weights,
+        ]
+
     trainer = L.Trainer(
         max_epochs=max_epochs,
         accelerator=accelerator,
@@ -96,6 +151,7 @@ def train_bilstm(
         enable_checkpointing=False,
         enable_progress_bar=progress,
         enable_model_summary=progress,
+        callbacks=callbacks,
         # No validation set: skip validation entirely (the data module returns an empty val loader).
         limit_val_batches=1.0 if validate else 0,
         num_sanity_val_steps=2 if validate else 0,
@@ -105,6 +161,10 @@ def train_bilstm(
     provenance: dict[str, Any] = {"seed": seed}
     if metadata:
         provenance.update(metadata)
+    if best_weights is not None:
+        best_weights.restore(network)  # freeze the best epoch's weights, not the last
+        if best_weights.best_score is not None:
+            provenance["best_val_loss"] = best_weights.best_score
     return ModelBundle(
         network_config={"network": NETWORK_KIND, **config.to_dict()},
         state_dict=network.state_dict(),
