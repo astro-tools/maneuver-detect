@@ -33,6 +33,10 @@ htmlcov/
 site/
 .cache/
 
+# Model checkpoints — trained bundles live on the Hub, never in git (e.g. the train_bilstm_real
+# driver writes bilstm-base.pt to the repo root).
+*.pt
+
 # IDE / editor
 .vscode/
 .idea/
