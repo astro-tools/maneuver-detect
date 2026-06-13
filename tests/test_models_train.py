@@ -78,6 +78,22 @@ def test_training_with_validation_runs_and_merges_metadata() -> None:
     assert bundle.metadata["dataset_version"] == "synthetic-test"
 
 
+def test_train_accepts_warn_determinism() -> None:
+    # The GPU escape hatch (cuDNN LSTM has no deterministic backward) runs on CPU too.
+    bundle = train_bilstm(
+        _train_objects(),
+        config=_CONFIG,
+        max_epochs=1,
+        seed=0,
+        window=32,
+        stride=16,
+        batch_size=8,
+        accelerator="cpu",
+        deterministic="warn",
+    )
+    assert bundle.network_config["network"] == "bilstm"
+
+
 def test_checkpoint_round_trips_and_rebuilds_identical_network(tmp_path: Path) -> None:
     bundle = _train()
     path = tmp_path / "bilstm.pt"

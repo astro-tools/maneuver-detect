@@ -17,7 +17,7 @@ card, written by the offline run that has the real data and the GPU.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 import lightning as L
 
@@ -42,16 +42,22 @@ def train_bilstm(
     batch_size: int = 64,
     threshold: float = 0.5,
     accelerator: str = "auto",
+    deterministic: bool | Literal["warn"] = True,
     metadata: dict[str, Any] | None = None,
 ) -> ModelBundle:
     """Train a BiLSTM on ``train_objects`` and return its frozen :class:`ModelBundle`.
 
-    The run is seeded (``seed``) and deterministic. ``config`` sets the architecture (defaults to
+    The run is seeded (``seed``). ``config`` sets the architecture (defaults to
     :class:`BiLstmConfig`); ``hparams`` the optimisation (defaults to the train-split-derived
     positive-class weight). ``window`` / ``stride`` default to the frozen feature-layer geometry.
     ``accelerator`` is passed to the Lightning ``Trainer`` — ``"auto"`` picks a GPU when present,
     CPU otherwise. ``metadata`` is merged into the bundle's provenance (the seed is added
     automatically).
+
+    ``deterministic`` is forwarded to the ``Trainer``: the default ``True`` gives bit-exact
+    reproducibility (CPU, and CUDA with ``CUBLAS_WORKSPACE_CONFIG`` set), but cuDNN's LSTM has no
+    deterministic backward, so a GPU run that hits that error should pass ``"warn"`` to fall back to
+    seed-level reproducibility (the seed is still recorded on the bundle).
     """
     from maneuver_detect.features.windows import STRIDE, WINDOW
 
@@ -80,7 +86,7 @@ def train_bilstm(
         max_epochs=max_epochs,
         accelerator=accelerator,
         devices=1,
-        deterministic=True,
+        deterministic=deterministic,
         logger=False,
         enable_checkpointing=False,
         enable_progress_bar=False,
