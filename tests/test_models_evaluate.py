@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
+import pytest
 
 from _synthetic import Burn, synthetic_series
 from maneuver_detect.benchmark import SplitName, TemporalSplit
@@ -81,6 +82,16 @@ def test_empty_partition_scores_nothing() -> None:
     leo = report.per_class[OrbitClass.LEO]
     assert leo.n_labels_total == 0
     assert leo.n_detections == 0
+
+
+@pytest.mark.filterwarnings("error::UserWarning")
+def test_scoring_does_not_warn_on_nanosecond_epochs() -> None:
+    # A detection epoch is a gap midpoint and carries nanoseconds; era classification must not warn
+    # about discarding them (it compares the Timestamp directly, not a lossy native datetime).
+    frame = synthetic_series(norad_id=1, seed=0, n=900, burns=(Burn(700, "in_track_ms", 4.0),))
+    labels = [_label(frame, 700, 4.0)]
+    split = _split(test=frozenset({1}))
+    score_on_temporal_split(ClassicalDetector(), {1: frame}, labels, split)
 
 
 def test_label_outside_the_objects_era_is_dropped() -> None:
