@@ -46,8 +46,13 @@ _PARTITION_ERA: dict[SplitName, int] = {
 
 
 def _in_era(epochs: pd.Series, split: TemporalSplit, era: int) -> pd.Series:
-    """Boolean mask of the epochs that fall in ``era`` (guard bands excluded)."""
-    return epochs.map(lambda ts: split.era_of(pd.Timestamp(ts).to_pydatetime()) == era)
+    """Boolean mask of the epochs that fall in ``era`` (guard bands excluded).
+
+    A ``pd.Timestamp`` is a ``datetime`` subclass, so it goes to :meth:`TemporalSplit.era_of`
+    directly — converting to a native ``datetime`` would discard sub-microsecond nanoseconds (a
+    gap-midpoint detection epoch carries them) and warn, for no gain at day-grained cuts.
+    """
+    return epochs.map(lambda ts: split.era_of(pd.Timestamp(ts)) == era)
 
 
 def score_on_temporal_split(
@@ -89,9 +94,11 @@ def score_on_temporal_split(
         if era_series.empty:
             continue
 
-        # The object's series spans every era; keep only the in-era detections.
+        # The object's series spans every era; keep only the in-era detections. The detection epoch
+        # is a gap midpoint (carries nanoseconds), so it is passed as a Timestamp — a datetime
+        # subclass — rather than converted (which would warn on the nanosecond discard).
         for maneuver in from_frame(detector.detect(series)):
-            if split.era_of(maneuver.epoch.to_pydatetime()) == era:
+            if split.era_of(maneuver.epoch) == era:
                 detections.append(maneuver)
 
         obj_labels = labels_by_norad.get(norad_id, [])
