@@ -72,3 +72,30 @@ jobs:
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
             dist/*
+
+  publish-hub-dataset:
+    name: publish dataset to Hugging Face Hub
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Publish dataset to the Hugging Face Hub
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          # Checkpoints are GPU-trained offline and published locally; only the committed,
+          # deterministic dataset artifacts are published here. The version (Hub tag and source
+          # dir) derives from the package's DATASET_VERSION so the published tag matches what the
+          # library pins its loads to. Skip cleanly when the HF_TOKEN secret is not configured.
+          if [ -z "${HF_TOKEN}" ]; then
+            echo "HF_TOKEN secret not set; skipping Hugging Face dataset publish." >&2
+            exit 0
+          fi
+          uv run maneuver-detect dataset publish

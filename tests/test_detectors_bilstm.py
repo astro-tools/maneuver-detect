@@ -43,11 +43,19 @@ def test_registered_as_bilstm_base() -> None:
     assert isinstance(get_detector("bilstm-base"), BiLstmDetector)
 
 
-def test_detect_without_checkpoint_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_detect_without_local_checkpoint_fetches_from_hub(monkeypatch: pytest.MonkeyPatch) -> None:
+    # With no explicit bundle and no env-var path, detect() pulls the Hub-published checkpoint on
+    # first use; a download failure surfaces as a clear HubError rather than a raw transport error.
+    from maneuver_detect.hub import HubError
+
+    def _offline(**kwargs: object) -> str:
+        raise OSError("offline")
+
     monkeypatch.delenv(CHECKPOINT_ENV, raising=False)
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", _offline)
     detector = BiLstmDetector()
     assert detector.is_loaded is False
-    with pytest.raises(ValueError, match="needs a trained checkpoint"):
+    with pytest.raises(HubError, match="could not fetch"):
         detector.detect(synthetic_series(norad_id=1, seed=0))
 
 

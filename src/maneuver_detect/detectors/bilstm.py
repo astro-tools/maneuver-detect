@@ -9,11 +9,12 @@ registry name and its checkpoint-path environment variable; the architecture is 
 bundle's ``network`` tag at load time, so the shared base rebuilds the bidirectional LSTM here and
 the transformer for its sibling detector.
 
-The detector registers under ``"bilstm-base"``. It needs a trained checkpoint: construct it with a
-bundle (or a path), or set the :data:`CHECKPOINT_ENV` environment variable to a bundle path so the
-no-argument construction the registry uses (``detect(history, model="bilstm-base")``) finds one.
-Without a checkpoint it raises a clear error. The heavy ``torch`` / model imports are deferred to
-construction time, so importing the package (or using the classical detector) never pays for them.
+The detector registers under ``"bilstm-base"``. It resolves a trained checkpoint in this order: an
+explicit bundle (or path) passed to the constructor, then the :data:`CHECKPOINT_ENV` environment
+variable, then — for the no-argument construction the registry uses
+(``detect(history, model="bilstm-base")``) — the Hub-published checkpoint, fetched on first use. The
+heavy ``torch`` / model imports are deferred to construction time, so importing the package (or
+using the classical detector) never pays for them.
 """
 
 from __future__ import annotations
@@ -24,9 +25,9 @@ from maneuver_detect.detectors.learned import _detected_gaps, _LearnedDetector
 
 __all__ = ["CHECKPOINT_ENV", "BiLstmDetector", "_detected_gaps"]
 
-#: Environment variable naming a checkpoint-bundle path the no-argument detector loads, so the
-#: ``detect(history, model="bilstm-base")`` dispatch path can find a trained model without the
-#: caller threading one through. A published-checkpoint default (Hub) arrives in a later release.
+#: Environment variable naming a local checkpoint-bundle path the no-argument detector loads, so the
+#: ``detect(history, model="bilstm-base")`` dispatch path can use a trained model without the caller
+#: threading one through. Unset, the no-argument detector falls back to the Hub checkpoint.
 CHECKPOINT_ENV = "MANEUVER_DETECT_BILSTM_CHECKPOINT"
 
 

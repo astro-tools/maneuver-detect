@@ -32,10 +32,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     args = _build_parser().parse_args(argv)
     if args.command == "dataset":
+        if args.dataset_command == "publish":
+            return _run_dataset_publish(
+                dataset_dir=args.dataset_dir,
+                repo=args.repo,
+                version=args.version,
+                token=args.token,
+            )
         return _run_dataset_build(
             out_dir=args.out,
             nanu_start_year=args.nanu_start_year,
             nanu_end_year=args.nanu_end_year,
+        )
+    if args.command == "models":
+        return _run_models_publish(
+            name=args.name,
+            bundle=args.bundle,
+            version=args.version,
+            token=args.token,
         )
     return _run_detect(
         target=args.target,
@@ -134,6 +148,74 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="last NANU archive year to crawl (default: the current year)",
+    )
+
+    dataset_publish_parser = dataset_actions.add_parser(
+        "publish",
+        help="publish the dataset artifacts + a dataset card to the Hugging Face Hub",
+        description=(
+            "Upload the committed dataset artifacts (recipe.json, labels.json, manifest.json, and "
+            "splits.json when present) and a generated dataset card to the Hugging Face Hub "
+            "dataset repo, and move the lockstep version tag onto them. The raw element series is "
+            "never uploaded. Authenticates with the HF write token in $HF_TOKEN (or a prior login)."
+        ),
+    )
+    dataset_publish_parser.add_argument(
+        "dataset_dir",
+        nargs="?",
+        default=None,
+        help=(
+            "directory holding recipe.json / labels.json / manifest.json / splits.json "
+            "(default: dataset/v<minor> for the package's dataset version)"
+        ),
+    )
+    dataset_publish_parser.add_argument(
+        "--repo",
+        default=None,
+        help="target Hub dataset repo (default: astro-tools/maneuver-detect)",
+    )
+    dataset_publish_parser.add_argument(
+        "--version",
+        default=None,
+        help="dataset version / lockstep tag (default: the package's dataset version)",
+    )
+    dataset_publish_parser.add_argument(
+        "--token",
+        default=None,
+        help="Hugging Face write token (default: $HF_TOKEN or a prior login)",
+    )
+
+    models_parser = subcommands.add_parser(
+        "models",
+        help="publish trained model checkpoints to the Hugging Face Hub",
+        description="Publish a trained checkpoint bundle and its generated model card to the Hub.",
+    )
+    models_actions = models_parser.add_subparsers(
+        dest="models_command", required=True, metavar="<action>"
+    )
+    models_publish_parser = models_actions.add_parser(
+        "publish",
+        help="publish a checkpoint bundle + model card to the Hugging Face Hub",
+        description=(
+            "Upload a trained checkpoint bundle and a model card generated from the bundle's own "
+            "provenance to the Hugging Face Hub model repo for <name>, and move the lockstep "
+            "version tag onto them. Run from the training environment, which has the weights "
+            "(CI does not). Authenticates with the HF write token in $HF_TOKEN (or a prior login)."
+        ),
+    )
+    models_publish_parser.add_argument(
+        "name", help="registered detector name (bilstm-base | transformer-base)"
+    )
+    models_publish_parser.add_argument("bundle", help="path to the trained checkpoint bundle (.pt)")
+    models_publish_parser.add_argument(
+        "--version",
+        default=None,
+        help="checkpoint version / lockstep tag (default: the package's dataset version)",
+    )
+    models_publish_parser.add_argument(
+        "--token",
+        default=None,
+        help="Hugging Face write token (default: $HF_TOKEN or a prior login)",
     )
     return parser
 
@@ -279,4 +361,56 @@ def _run_dataset_build(out_dir: str, nanu_start_year: int, nanu_end_year: int | 
         )
     for name in ("recipe", "labels", "manifest"):
         print(f"wrote {name}: {report.paths[name]}")
+    return 0
+
+
+def _run_dataset_publish(
+    dataset_dir: str | None, repo: str | None, version: str | None, token: str | None
+) -> int:
+    """Publish the dataset artifacts in ``dataset_dir`` + a dataset card to the Hugging Face Hub.
+
+    The version drives the lockstep Hub tag and, when ``dataset_dir`` is omitted, the source
+    directory (``dataset/v<minor>``), so a no-argument invocation publishes the package's current
+    dataset version — keeping the published tag aligned with what the loader pins to.
+    """
+    import sys
+
+    from maneuver_detect.datasets.catalogue import DATASET_VERSION
+    from maneuver_detect.datasets.publish import publish_dataset
+    from maneuver_detect.errors import ManeuverDetectError
+    from maneuver_detect.hub import DATASET_REPO
+
+    resolved_version = version if version is not None else DATASET_VERSION
+    if dataset_dir is None:
+        minor = ".".join(resolved_version.split(".")[:2])
+        dataset_dir = f"dataset/v{minor}"
+    try:
+        repo_id = publish_dataset(
+            dataset_dir,
+            version=resolved_version,
+            repo_id=repo if repo is not None else DATASET_REPO,
+            token=token,
+        )
+    except (ManeuverDetectError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"published dataset to {repo_id} (v{resolved_version})")
+    return 0
+
+
+def _run_models_publish(name: str, bundle: str, version: str | None, token: str | None) -> int:
+    """Publish a trained checkpoint bundle + its generated model card to the Hugging Face Hub."""
+    import sys
+
+    from maneuver_detect.datasets.catalogue import DATASET_VERSION
+    from maneuver_detect.errors import ManeuverDetectError
+    from maneuver_detect.models.publish import publish_checkpoint
+
+    resolved_version = version if version is not None else DATASET_VERSION
+    try:
+        repo_id = publish_checkpoint(name, bundle, token=token, version=resolved_version)
+    except (ManeuverDetectError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"published {name} to {repo_id} (v{resolved_version})")
     return 0
