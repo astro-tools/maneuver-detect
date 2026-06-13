@@ -29,6 +29,7 @@ import json
 import os
 import time
 from collections import defaultdict
+from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
@@ -124,14 +125,19 @@ def main() -> int:
     )
     gpu_hours = (time.time() - started) / 3600.0
 
-    out = _ROOT / "bilstm-base.pt"
-    save_bundle(bundle, out)
-    print(f"checkpoint -> {out}  (trained in {gpu_hours:.2f} GPU-hours)")
-
-    # Score the held-out test split through the benchmark (the model-card / leaderboard numbers).
+    # Score the held-out test split through the benchmark (the model-card / leaderboard numbers) and
+    # record the full report into the checkpoint, so the generated model card carries the per-class
+    # test metrics straight from the weights.
     report = score_on_temporal_split(
         BiLstmDetector(bundle), series_by_norad, dataset.labels, split, partition=SplitName.TEST
     )
+    bundle = replace(
+        bundle, metadata={**bundle.metadata, "test_report": json.loads(report.to_json())}
+    )
+
+    out = _ROOT / "bilstm-base.pt"
+    save_bundle(bundle, out)
+    print(f"checkpoint -> {out}  (trained in {gpu_hours:.2f} GPU-hours)")
     print("\nHeld-out test split (recall @ operating point, above-floor population):")
     print(report.summary())
     return 0
