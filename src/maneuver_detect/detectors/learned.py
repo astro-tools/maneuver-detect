@@ -86,6 +86,11 @@ class _LearnedDetector(Detector):
         self._window = 0
         self._stride = 0
         self._threshold = 0.5
+        self._threshold_override = threshold
+        # No explicit bundle and no env-var path: fall back to the Hub-published checkpoint, fetched
+        # lazily on the first detect() call (so construction stays network-free — the resolution
+        # order is explicit bundle → $…_CHECKPOINT → Hub).
+        self._hub_pending = checkpoint is None
 
         if checkpoint is not None:
             self._load(checkpoint, threshold)
@@ -102,6 +107,16 @@ class _LearnedDetector(Detector):
         self._stride = bundle.stride
         self._threshold = bundle.threshold if threshold is None else threshold
 
+    def _load_from_hub(self) -> None:
+        """Fetch this detector's Hub-published checkpoint and load it (CPU-only, cached on disk)."""
+        # Imported lazily so neither importing the package nor the classical detector pays for
+        # huggingface_hub. checkpoint_path raises HubError (a ManeuverDetectError) on any failure.
+        from maneuver_detect import hub
+
+        path = hub.checkpoint_path(self.name)
+        self._load(path, self._threshold_override)
+        self._hub_pending = False
+
     @property
     def is_loaded(self) -> bool:
         """Whether a trained checkpoint is loaded (``detect`` works only when it is)."""
@@ -112,13 +127,18 @@ class _LearnedDetector(Detector):
 
         ``history`` is a mean-element series; a frame with multiple objects is grouped by
         ``norad_id`` and each object detected independently, with rows returned sorted by
-        ``(norad_id, epoch)``. Raises :class:`ValueError` if no trained checkpoint is loaded.
+        ``(norad_id, epoch)``. The first call with no local checkpoint fetches the detector's
+        Hub-published bundle (CPU-only, cached on disk). Raises
+        :class:`~maneuver_detect.hub.HubError` if that fetch fails and :class:`ValueError` if the
+        detector has no checkpoint and none can be resolved.
         """
+        if self._network is None and self._hub_pending:
+            self._load_from_hub()
         if self._network is None or self._normaliser is None:
             raise ValueError(
                 f"the {self.name!r} detector needs a trained checkpoint; construct "
-                f"{type(self).__name__}(checkpoint=...) or set ${self.checkpoint_env} "
-                "(Hub-published checkpoints arrive in a later release)"
+                f"{type(self).__name__}(checkpoint=...), set ${self.checkpoint_env} to a local "
+                "bundle, or publish one to the Hub"
             )
         if history.empty:
             return empty_frame()
