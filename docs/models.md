@@ -91,7 +91,10 @@ HF_TOKEN=... maneuver-detect models publish bilstm-base ./bilstm-base.pt
 HF_TOKEN=... maneuver-detect models publish transformer-base ./transformer-base.pt
 ```
 
-Each model card is generated from the bundle's own provenance — the training data version, the
-measured metrics, the architecture, and the training cost — so the documented numbers cannot drift
-from the weights they describe. The dataset and the checkpoints carry the same version tag, kept in
-lockstep with the library release.
+Each model card is generated from the bundle's own provenance — the training-data version, the
+measured per-class test recall/precision, the architecture, and the training cost — so the
+documented numbers cannot drift from the weights they describe. The per-class metrics are recorded
+into the checkpoint when the training/eval driver scores the held-out test split; an existing
+checkpoint can be back-filled without retraining via `examples/score_checkpoint.py` (credentialed,
+CPU). The dataset and the checkpoints carry the same version tag, kept in lockstep with the library
+release.
