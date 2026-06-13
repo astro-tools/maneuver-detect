@@ -11,7 +11,7 @@ from _synthetic import Burn, synthetic_series
 from maneuver_detect.benchmark import SplitName, TemporalSplit
 from maneuver_detect.detectors import ClassicalDetector
 from maneuver_detect.labels.record import ManeuverLabel, OrbitClass
-from maneuver_detect.models.evaluate import score_on_temporal_split
+from maneuver_detect.models.evaluate import score_on_temporal_split, tune_threshold_on_val
 
 # Cuts that put day ~100 of a 2024-01-01 daily series in the oldest era and day ~700 in the newest.
 _CUT1 = datetime(2024, 8, 1, tzinfo=timezone.utc)
@@ -105,3 +105,9 @@ def test_label_outside_the_objects_era_is_dropped() -> None:
         ClassicalDetector(), {2: frame}, labels, split, partition=SplitName.TEST
     )
     assert report.per_class[OrbitClass.LEO].n_labels_total == 0
+
+
+def test_tune_threshold_rejects_empty_candidates() -> None:
+    # The candidate guard fires before any detector is built (the factory is never called).
+    with pytest.raises(ValueError, match="non-empty"):
+        tune_threshold_on_val(lambda _t: ClassicalDetector(), {}, [], _split(), candidates=())

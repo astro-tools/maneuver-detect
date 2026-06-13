@@ -20,15 +20,21 @@ from _synthetic import Burn, object_series, synthetic_series
 from maneuver_detect.benchmark import ObjectExposure, ScoredLabel, TemporalSplit, score
 from maneuver_detect.benchmark.matching import match_detections
 from maneuver_detect.detectors.bilstm import BiLstmDetector
+from maneuver_detect.detectors.transformer import TransformerDetector
 from maneuver_detect.labels.labeller import label_series
 from maneuver_detect.labels.record import ManeuverLabel, OrbitClass
 from maneuver_detect.models.bilstm import BiLstmConfig
 from maneuver_detect.models.checkpoint import ModelBundle, build_network, load_bundle, save_bundle
 from maneuver_detect.models.datamodule import ObjectSeries
-from maneuver_detect.models.train import ValBenchmark, train_bilstm
+from maneuver_detect.models.evaluate import tune_threshold_on_val
+from maneuver_detect.models.train import ValBenchmark, train_bilstm, train_transformer
+from maneuver_detect.models.transformer import TransformerConfig
 from maneuver_detect.schema import COLUMNS, from_frame, validate_frame
 
 _CONFIG = BiLstmConfig(hidden_size=8, num_layers=1, dropout=0.0)
+_TF_CONFIG = TransformerConfig(
+    d_model=16, nhead=2, num_layers=1, dim_feedforward=32, dropout=0.0, max_len=64
+)
 
 
 def _train_objects() -> list[ObjectSeries]:
@@ -274,3 +280,91 @@ def test_trained_model_scores_through_the_benchmark() -> None:
     assert OrbitClass.LEO in report.per_class
     # The matching runs without error over the model's detections (mechanics, not accuracy).
     match_detections(detections, scored_labels)
+
+
+# --- The transformer baseline trains through the same shared harness ------------------------------
+
+
+def _train_transformer(seed: int = 0, **kwargs: object) -> ModelBundle:
+    return train_transformer(
+        _train_objects(),
+        config=_TF_CONFIG,
+        max_epochs=1,
+        seed=seed,
+        window=32,
+        stride=16,
+        batch_size=8,
+        accelerator="cpu",
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
+def test_train_transformer_returns_a_consistent_bundle() -> None:
+    bundle = _train_transformer()
+    assert bundle.network_config["network"] == "transformer"
+    assert bundle.window == 32 and bundle.stride == 16
+    assert bundle.metadata["seed"] == 0
+    # The transformer-friendly defaults are recorded as provenance.
+    assert bundle.metadata["optimizer"] == "adamw"
+    assert bundle.metadata["scheduler"] == "warmup_cosine"
+    assert bundle.metadata["loss"] == "bce"
+    assert "LEO" in bundle.normaliser["medians"]
+
+
+def test_transformer_training_is_deterministic_for_a_fixed_seed() -> None:
+    first = _train_transformer(seed=7)
+    second = _train_transformer(seed=7)
+    assert first.state_dict.keys() == second.state_dict.keys()
+    for key in first.state_dict:
+        assert torch.equal(first.state_dict[key], second.state_dict[key]), key
+
+
+def test_transformer_checkpoint_round_trips_and_rebuilds_identical_network(tmp_path: Path) -> None:
+    bundle = _train_transformer()
+    path = tmp_path / "transformer.pt"
+    save_bundle(bundle, path)
+    reloaded = load_bundle(path)
+
+    original = build_network(bundle)
+    restored = build_network(reloaded)
+    sample = torch.zeros(1, 32, _TF_CONFIG.n_channels, dtype=torch.float32)
+    sample[:, :, -2] = 1.0  # elset_valid: mark tokens real so the window is not all-padding (NaN)
+    with torch.no_grad():
+        assert torch.equal(original(sample), restored(sample))
+
+
+def test_transformer_detect_returns_canonical_schema() -> None:
+    bundle = _train_transformer()
+    frame = synthetic_series(norad_id=1, seed=11, burns=(Burn(45, "in_track_ms", 4.0),), n=90)
+
+    out = TransformerDetector(bundle).detect(frame)
+    validate_frame(out)
+    assert list(out.columns) == list(COLUMNS)
+
+
+def test_transformer_focal_loss_path_trains() -> None:
+    bundle = _train_transformer(loss="focal")
+    assert bundle.metadata["loss"] == "focal"
+    assert bundle.train_hparams["focal_gamma"] == 2.0  # the default focal exponent
+
+
+def test_transformer_plain_optimizer_and_scheduler_paths_train() -> None:
+    # The Adam + no-schedule path also runs for the transformer, covering the non-default knobs.
+    bundle = _train_transformer(optimizer="adam", scheduler="none")
+    assert bundle.metadata["optimizer"] == "adam"
+    assert bundle.metadata["scheduler"] == "none"
+
+
+def test_tune_threshold_on_val_selects_a_candidate() -> None:
+    bundle = _train_transformer()
+    val_frame = synthetic_series(norad_id=5, seed=5, n=900, burns=(Burn(450, "in_track_ms", 4.0),))
+    tuning = tune_threshold_on_val(
+        lambda t: TransformerDetector(bundle, threshold=t),
+        {5: val_frame},
+        [_val_label(val_frame, 450, 4.0)],
+        _temporal_split(val=frozenset({5})),
+        candidates=(0.2, 0.5, 0.8),
+    )
+    assert tuning.threshold in (0.2, 0.5, 0.8)
+    assert 0.0 <= tuning.recall <= 1.0
+    assert set(tuning.by_threshold) == {0.2, 0.5, 0.8}
