@@ -217,6 +217,14 @@ cards.
 
 ## Caveats / open items
 
+- **Superseded for v0.2 — the hidden-label assumption (A.2 / Part B.2) does not hold on the public
+  test set.** This spike assumed the held-out labels could live only on the Space, with a held-back
+  private subset deciding the final ranking. The v0.2 dataset instead **commits the full answer key**
+  (`labels.json` + `splits.json`), so that firewall is unbuildable. Per the **D12 amendment** the v0.2
+  board ships in **reproducibility mode** on the public splits: the public/private-subset split is
+  dropped, and the aggregate-only response + rate limit remain as courtesy / abuse guards. The probing
+  analysis below is retained as the rationale for a *future* hidden-label competition (a never-committed
+  forward holdout, deferred to v0.3+), not as a description of the v0.2 board.
 - The compute budget is **order-of-magnitude**, not measured: `6·N·T` ignores attention's quadratic
   term (negligible at `W = 64`), and effective throughput on small models is empirical. The
   acceptance gate (D12.4) is where the estimate is confirmed or revised.
