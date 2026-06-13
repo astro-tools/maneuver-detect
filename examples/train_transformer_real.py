@@ -141,11 +141,9 @@ def main() -> int:
     bundle = replace(bundle, threshold=tuning.threshold)
     print(f"tuned threshold -> {tuning.threshold:g}  (val recall {tuning.recall:.2f})")
 
-    out = _ROOT / "transformer-base.pt"
-    save_bundle(bundle, out)
-    print(f"checkpoint -> {out}  (trained in {gpu_hours:.2f} GPU-hours)")
-
-    # Score the held-out test split through the benchmark (the model-card / leaderboard numbers).
+    # Score the held-out test split through the benchmark (the model-card / leaderboard numbers) and
+    # record the full report into the checkpoint, so the generated model card carries the per-class
+    # test metrics straight from the weights.
     report = score_on_temporal_split(
         TransformerDetector(bundle),
         series_by_norad,
@@ -153,6 +151,13 @@ def main() -> int:
         split,
         partition=SplitName.TEST,
     )
+    bundle = replace(
+        bundle, metadata={**bundle.metadata, "test_report": json.loads(report.to_json())}
+    )
+
+    out = _ROOT / "transformer-base.pt"
+    save_bundle(bundle, out)
+    print(f"checkpoint -> {out}  (trained in {gpu_hours:.2f} GPU-hours)")
     print("\nHeld-out test split (recall @ operating point, above-floor population):")
     print(report.summary())
     return 0

@@ -75,11 +75,62 @@ def _format_value(value: Any) -> str:
 
 
 def _provenance_table(metadata: dict[str, Any]) -> str:
-    """A markdown table of the bundle's provenance, or a note when nothing was recorded."""
+    """A markdown table of the bundle's scalar provenance, or a note when nothing was recorded."""
     if not metadata:
         return "_No provenance was recorded in the checkpoint._"
     rows = "\n".join(f"| `{key}` | {_format_value(metadata[key])} |" for key in sorted(metadata))
     return f"| field | value |\n|---|---|\n{rows}"
+
+
+# Orbit classes ordered by altitude for the per-class table, with unknowns sorted last by name.
+_CLASS_ORDER = {"LEO": 0, "MEO": 1, "GEO": 2, "HEO": 3}
+
+
+def _fmt_metric(value: Any) -> str:
+    """A recall/precision cell — two decimals, or an em dash when the metric is undefined."""
+    return f"{value:.2f}" if isinstance(value, (int, float)) else "—"
+
+
+def _type_accuracy(confusion: Any) -> str:
+    """Diagonal / total of a ``{true: {pred: count}}`` confusion matrix, or ``—`` when empty."""
+    if not isinstance(confusion, dict):
+        return "—"
+    correct = sum(int(row.get(true, 0)) for true, row in confusion.items() if isinstance(row, dict))
+    total = sum(int(n) for row in confusion.values() if isinstance(row, dict) for n in row.values())
+    return f"{correct / total:.2f}" if total else "—"
+
+
+def _test_report_table(report: dict[str, Any]) -> str:
+    """Render the held-out test ``ScoreReport`` (as stored in metadata) as a per-class table.
+
+    Returns an empty string when the report carries no per-class metrics, so an evaluated and an
+    un-evaluated checkpoint both produce a valid card.
+    """
+    per_class = report.get("per_class")
+    if not isinstance(per_class, dict) or not per_class:
+        return ""
+    operating_point = report.get("operating_point")
+    ci_level = report.get("ci_level")
+    op = f"{operating_point:g}" if isinstance(operating_point, (int, float)) else "the operating"
+    ci = f" ({ci_level:.0%} CI)" if isinstance(ci_level, (int, float)) else ""
+    rows = [
+        "| Class | Recall | Precision | Above-floor labels | Type acc |",
+        "|---|---|---|---|---|",
+    ]
+    for key in sorted(per_class, key=lambda k: (_CLASS_ORDER.get(k, 99), k)):
+        metrics = per_class[key]
+        rows.append(
+            f"| {key} | {_fmt_metric(metrics.get('recall'))} "
+            f"| {_fmt_metric(metrics.get('precision'))} "
+            f"| {metrics.get('n_labels_above_floor', '—')} "
+            f"| {_type_accuracy(metrics.get('confusion'))} |"
+        )
+    table = "\n".join(rows)
+    return (
+        f"Held-out **test split** — recall/precision at {op} false alarm(s)/satellite-year over "
+        f"the above-floor population{ci}. Type acc is the share of above-floor true positives "
+        f"whose maneuver type is correct.\n\n{table}\n\n"
+    )
 
 
 def build_model_card(bundle: ModelBundle, name: str, *, version: str = DATASET_VERSION) -> str:
@@ -93,6 +144,10 @@ def build_model_card(bundle: ModelBundle, name: str, *, version: str = DATASET_V
     architecture = str(bundle.network_config.get("network", "sequence"))
     n_params = sum(int(tensor.numel()) for tensor in bundle.state_dict.values())
     metadata = dict(bundle.metadata)
+    # The held-out test report renders as its own per-class table, so pull it out of the scalar
+    # provenance table (a nested dict would render as one unreadable cell).
+    test_report = metadata.pop("test_report", None)
+    eval_block = _test_report_table(test_report) if isinstance(test_report, dict) else ""
     dataset_version = str(metadata.get("dataset_version", version))
     recall = metadata.get("best_val_recall")
     recall_line = (
@@ -159,11 +214,10 @@ scored in novel eras.
 
 ## Evaluation
 
-{recall_line}The benchmark scores precision/recall at a fixed false-alarm rate per orbit class over
-the above-floor population, with per-class type confusion, via the package's deterministic scorer.
+{eval_block}{recall_line}The benchmark scores precision/recall at a fixed false-alarm rate per orbit
+class over the above-floor population, with per-class type confusion, via the deterministic scorer.
 Performance is sharply data-quality-stratified: well-tracked modern satellites reach
 literature-level recall, while noisy historical series are bounded by the TLE detectability floor.
-The measured training-time numbers are in the provenance table below.
 
 ## Intended use and limitations
 

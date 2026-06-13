@@ -7,7 +7,8 @@ the lockstep version tag, and that the cards carry the expected frontmatter and 
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ import pytest
 
 from _synthetic import Burn, object_series
 from maneuver_detect import hub
+from maneuver_detect.benchmark.scoring import score
 from maneuver_detect.datasets.catalogue import DATASET_VERSION
 from maneuver_detect.datasets.publish import build_dataset_card, publish_dataset
 from maneuver_detect.models.bilstm import BiLstmConfig
@@ -154,6 +156,55 @@ def test_build_model_card_renders_frontmatter_and_provenance(bundle_path: Path) 
     assert "Intended use" in card
     assert "| field | value |" in card  # the provenance table
     assert "`seed`" in card  # a recorded provenance field
+
+
+def test_build_model_card_renders_test_metrics_table(bundle_path: Path) -> None:
+    test_report = {
+        "operating_point": 1.0,
+        "ci_level": 0.95,
+        "per_class": {
+            "GEO": {
+                "recall": 0.10,
+                "precision": 0.89,
+                "n_labels_above_floor": 120,
+                "confusion": {},
+            },
+            "LEO": {
+                "recall": 0.35,
+                "precision": 0.86,
+                "n_labels_above_floor": 23,
+                "confusion": {
+                    "in_track": {"in_track": 8, "cross_track": 1, "radial": 0},
+                    "cross_track": {"in_track": 0, "cross_track": 2, "radial": 0},
+                    "radial": {"in_track": 0, "cross_track": 0, "radial": 0},
+                },
+            },
+        },
+    }
+    bundle = replace(load_bundle(bundle_path), metadata={"seed": 0, "test_report": test_report})
+    card = build_model_card(bundle, "bilstm-base")
+
+    assert "| Class | Recall | Precision | Above-floor labels | Type acc |" in card
+    assert "| LEO | 0.35 | 0.86 | 23 | 0.91 |" in card  # type acc = 10/11
+    assert "| GEO | 0.10 | 0.89 | 120 | — |" in card  # empty confusion -> no type acc
+    assert "false alarm(s)/satellite-year" in card
+    assert "(95% CI)" in card
+    assert card.index("| LEO |") < card.index("| GEO |")  # altitude order, not alphabetical
+    # The nested report is rendered as the table, not dumped into the scalar provenance table.
+    assert "`test_report`" not in card
+
+
+def test_build_model_card_test_table_matches_real_report_schema(bundle_path: Path) -> None:
+    # Guards against drift between ScoreReport.to_json() and the card renderer: a real (empty)
+    # report round-trips through metadata and renders an all-undefined table without error.
+    report = score([], [], [])
+    bundle = replace(
+        load_bundle(bundle_path),
+        metadata={"test_report": json.loads(report.to_json())},
+    )
+    card = build_model_card(bundle, "bilstm-base")
+    assert "| Class | Recall | Precision | Above-floor labels | Type acc |" in card
+    assert "| LEO | — | — | 0 | — |" in card  # no labels -> undefined recall/precision/type acc
 
 
 def test_publish_dataset_uploads_card_and_artifacts(

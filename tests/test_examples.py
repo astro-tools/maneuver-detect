@@ -19,9 +19,11 @@ import pytest
 _EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
 
-def _run(script: str, *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def _run(
+    script: str, *args: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(_EXAMPLES / script)],
+        [sys.executable, str(_EXAMPLES / script), *args],
         capture_output=True,
         text=True,
         timeout=300,
@@ -86,6 +88,17 @@ def test_train_transformer_real_guides_without_credentials() -> None:
     result = _run("train_transformer_real.py", env=env)
     assert result.returncode == 0, result.stderr
     # The credentialed run needs Space-Track; with none it guides rather than failing or hanging.
+    assert "SPACETRACK_USERNAME" in result.stdout
+    assert "SPACETRACK_PASSWORD" in result.stdout
+
+
+def test_score_checkpoint_guides_without_credentials() -> None:
+    env = os.environ.copy()
+    env.pop("SPACETRACK_USERNAME", None)
+    env.pop("SPACETRACK_PASSWORD", None)
+    # Valid args so argparse passes; the re-score then needs Space-Track and guides without it.
+    result = _run("score_checkpoint.py", "bilstm-base", "bilstm-base.pt", env=env)
+    assert result.returncode == 0, result.stderr
     assert "SPACETRACK_USERNAME" in result.stdout
     assert "SPACETRACK_PASSWORD" in result.stdout
 
