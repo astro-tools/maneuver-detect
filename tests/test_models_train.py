@@ -9,13 +9,15 @@ recorded on the model card.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pandas as pd
 import pytest
 import torch
 
 from _synthetic import Burn, object_series, synthetic_series
-from maneuver_detect.benchmark import ObjectExposure, ScoredLabel, score
+from maneuver_detect.benchmark import ObjectExposure, ScoredLabel, TemporalSplit, score
 from maneuver_detect.benchmark.matching import match_detections
 from maneuver_detect.detectors.bilstm import BiLstmDetector
 from maneuver_detect.labels.labeller import label_series
@@ -23,7 +25,7 @@ from maneuver_detect.labels.record import ManeuverLabel, OrbitClass
 from maneuver_detect.models.bilstm import BiLstmConfig
 from maneuver_detect.models.checkpoint import ModelBundle, build_network, load_bundle, save_bundle
 from maneuver_detect.models.datamodule import ObjectSeries
-from maneuver_detect.models.train import train_bilstm
+from maneuver_detect.models.train import ValBenchmark, train_bilstm
 from maneuver_detect.schema import COLUMNS, from_frame, validate_frame
 
 _CONFIG = BiLstmConfig(hidden_size=8, num_layers=1, dropout=0.0)
@@ -34,6 +36,36 @@ def _train_objects() -> list[ObjectSeries]:
         object_series(norad_id=1, seed=1, burns=(Burn(40, "in_track_ms", 4.0),), n=90),
         object_series(norad_id=2, seed=2, burns=(Burn(55, "cross_track_ms", 4.0),), n=90),
     ]
+
+
+def _temporal_split(**members: frozenset[int]) -> TemporalSplit:
+    # Era cuts that put day ~450 of a 2024-01-01 daily series in the middle (val) era.
+    return TemporalSplit(
+        dataset_version="test",
+        seed=0,
+        cut1=datetime(2024, 8, 1, tzinfo=timezone.utc),
+        cut2=datetime(2025, 8, 1, tzinfo=timezone.utc),
+        guard=timedelta(days=7),
+        train=members.get("train", frozenset()),
+        val=members.get("val", frozenset()),
+        test=members.get("test", frozenset()),
+    )
+
+
+def _val_label(frame: pd.DataFrame, gap_index: int, dv: float) -> ManeuverLabel:
+    epochs = list(frame["epoch"])
+    midpoint = epochs[gap_index - 1] + (epochs[gap_index] - epochs[gap_index - 1]) / 2
+    return ManeuverLabel(
+        norad_id=int(frame["norad_id"].iloc[0]),
+        epoch=midpoint.to_pydatetime(),
+        window_start=epochs[gap_index - 1].to_pydatetime(),
+        window_end=epochs[gap_index].to_pydatetime(),
+        source="SYNTHETIC",
+        source_ref=f"{int(frame['norad_id'].iloc[0])}-{gap_index}",
+        orbit_class=OrbitClass.LEO,
+        maneuver_type=None,
+        delta_v=dv,
+    )
 
 
 def _train(seed: int = 0) -> ModelBundle:
@@ -123,6 +155,43 @@ def test_early_stopping_requires_a_validation_set() -> None:
             max_epochs=1,
             accelerator="cpu",
             early_stopping=True,
+        )
+
+
+def test_val_benchmark_selection_runs_and_records_recall() -> None:
+    # A val object with a maneuver in the middle era: selection scores it through the benchmark each
+    # epoch, restores the best-recall weights, and records best_val_recall on the bundle.
+    val_frame = synthetic_series(norad_id=5, seed=5, n=900, burns=(Burn(450, "in_track_ms", 4.0),))
+    spec = ValBenchmark(
+        series_by_norad={5: val_frame},
+        labels=[_val_label(val_frame, 450, 4.0)],
+        split=_temporal_split(val=frozenset({5})),
+    )
+    bundle = train_bilstm(
+        _train_objects(),
+        config=_CONFIG,
+        max_epochs=2,
+        seed=0,
+        window=32,
+        stride=16,
+        batch_size=8,
+        accelerator="cpu",
+        val_benchmark=spec,
+        patience=10,
+    )
+    assert isinstance(bundle.metadata["best_val_recall"], float)
+
+
+def test_early_stopping_and_val_benchmark_are_mutually_exclusive() -> None:
+    spec = ValBenchmark(series_by_norad={}, labels=[], split=_temporal_split())
+    with pytest.raises(ValueError, match="either early_stopping"):
+        train_bilstm(
+            _train_objects(),
+            config=_CONFIG,
+            max_epochs=1,
+            accelerator="cpu",
+            early_stopping=True,
+            val_benchmark=spec,
         )
 
 
