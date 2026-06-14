@@ -177,3 +177,18 @@ def test_cli_models_publish_routes_residual_to_foundation_publisher(
     assert calls["name"] == "chronos-residual"
     assert calls["allow_unscored"] is True
     assert "published chronos-residual" in capsys.readouterr().out
+
+
+def test_cli_calibrate_foundation_guides_without_credentials(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from maneuver_detect import cli
+
+    monkeypatch.delenv("SPACETRACK_USERNAME", raising=False)
+    monkeypatch.delenv("SPACETRACK_PASSWORD", raising=False)
+    # No credentials: it explains how to set them and exits 0 rather than reconstructing or hanging.
+    rc = cli.main(["models", "calibrate-foundation", "chronos", "chronos-residual.pt"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "SPACETRACK_USERNAME" in out
+    assert "SPACETRACK_PASSWORD" in out

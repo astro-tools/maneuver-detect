@@ -103,6 +103,18 @@ def test_score_checkpoint_guides_without_credentials() -> None:
     assert "SPACETRACK_PASSWORD" in result.stdout
 
 
+def test_calibrate_foundation_real_guides_without_credentials() -> None:
+    env = os.environ.copy()
+    env.pop("SPACETRACK_USERNAME", None)
+    env.pop("SPACETRACK_PASSWORD", None)
+    # Valid args so argparse passes; the calibration then needs Space-Track and guides without it
+    # (no [foundation] extra is touched on the credentials-absent path).
+    result = _run("calibrate_foundation_real.py", "chronos", "chronos-residual.pt", env=env)
+    assert result.returncode == 0, result.stderr
+    assert "SPACETRACK_USERNAME" in result.stdout
+    assert "SPACETRACK_PASSWORD" in result.stdout
+
+
 def test_foundation_residual_example_runs_offline() -> None:
     # Demonstrates the forecast-residual recipe with the dependency-free stand-in forecaster, so it
     # runs without the [foundation] extra, credentials, or the network.

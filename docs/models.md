@@ -119,6 +119,17 @@ HF_TOKEN=... maneuver-detect models publish chronos-residual ./chronos-residual.
 HF_TOKEN=... maneuver-detect models publish timesfm-residual ./timesfm-residual.pt
 ```
 
+The scored foundation bundle is produced first by `models calibrate-foundation` (or
+`examples/calibrate_foundation_real.py`), which reconstructs the dataset from Space-Track, calibrates
+the residual-z operating point on the val split, and scores the result on the held-out test split,
+writing the per-class metrics into the bundle. Zero-shot is CPU-only; `--finetune` adds a light
+Chronos fine-tune on a GPU:
+
+```bash
+SPACETRACK_USERNAME=... SPACETRACK_PASSWORD=... \
+  maneuver-detect models calibrate-foundation chronos ./chronos-residual.pt
+```
+
 Each model card is generated from the bundle's own provenance — the training-data version, the
 measured per-class test recall/precision, and the architecture (or, for a foundation bundle, the
 pinned forecaster and its thresholds) — so the documented numbers cannot drift from the weights they

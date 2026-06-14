@@ -45,6 +45,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             nanu_end_year=args.nanu_end_year,
         )
     if args.command == "models":
+        if args.models_command == "calibrate-foundation":
+            return _run_models_calibrate_foundation(
+                backend=args.backend,
+                out=args.out,
+                revision=args.revision,
+                dataset_dir=args.dataset_dir,
+                finetune=args.finetune,
+            )
         return _run_models_publish(
             name=args.name,
             bundle=args.bundle,
@@ -226,6 +234,39 @@ def _build_parser() -> argparse.ArgumentParser:
         "--allow-unscored",
         action="store_true",
         help="publish even if the checkpoint has no recorded held-out test metrics (blank card)",
+    )
+
+    calibrate_parser = models_actions.add_parser(
+        "calibrate-foundation",
+        help="calibrate + score a foundation forecast-residual bundle on the real dataset",
+        description=(
+            "Build a foundation forecast-residual detector for <backend>, reconstruct the "
+            "committed dataset from Space-Track (credentials via SPACETRACK_USERNAME / "
+            "SPACETRACK_PASSWORD; the elements are never written to the repo, per D2), calibrate "
+            "the residual-z operating point on the val split, score it on the held-out test split, "
+            "record the per-class metrics into the bundle, and write it to <out>. Zero-shot is "
+            "CPU-only; --finetune adds a light Chronos fine-tune (GPU). The scored bundle is then "
+            "ready for 'models publish'. Without credentials it prints how to set them and exits."
+        ),
+    )
+    calibrate_parser.add_argument(
+        "backend", choices=("chronos", "timesfm"), help="the foundation forecaster backend"
+    )
+    calibrate_parser.add_argument("out", help="path to write the calibrated, scored bundle (.pt)")
+    calibrate_parser.add_argument(
+        "--revision",
+        default="main",
+        help="the pinned forecaster checkpoint revision to confirm Apache-2.0 at ingest (D14.2)",
+    )
+    calibrate_parser.add_argument(
+        "--dataset-dir",
+        default=None,
+        help="directory with labels.json / splits.json (default: dataset/v<minor>)",
+    )
+    calibrate_parser.add_argument(
+        "--finetune",
+        action="store_true",
+        help="apply a light Chronos fine-tune before calibrating (GPU; chronos backend only)",
     )
     return parser
 
@@ -443,4 +484,81 @@ def _run_models_publish(
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(f"published {name} to {repo_id} (v{resolved_version})")
+    return 0
+
+
+def _run_models_calibrate_foundation(
+    *, backend: str, out: str, revision: str, dataset_dir: str | None, finetune: bool
+) -> int:
+    """Calibrate + score a foundation bundle on the Space-Track-reconstructed dataset, write it out.
+
+    Reconstructs the committed dataset (credentialed; the elements are never written to the repo,
+    per D2), calibrates the residual-z operating point on the val split, scores the result on the
+    held-out test split, records the per-class metrics into the bundle, and writes it to ``out`` for
+    ``models publish``. Without Space-Track credentials it explains how to set them and exits 0,
+    rather than failing or hanging — so it is safe to invoke from the example smoke test.
+    """
+    import json
+    import os
+    import sys
+    from collections import defaultdict
+    from pathlib import Path
+
+    import pandas as pd
+
+    if not (os.environ.get("SPACETRACK_USERNAME") and os.environ.get("SPACETRACK_PASSWORD")):
+        print("Calibrating a foundation bundle reconstructs the real dataset from Space-Track.")
+        print("Set the two environment variables and re-run (zero-shot is CPU only, no GPU):")
+        print("  export SPACETRACK_USERNAME='you@example.com'")
+        print("  export SPACETRACK_PASSWORD='your-space-track-password'")
+        print("The fetched elements are never written to the repo (reconstruct locally, per D2).")
+        return 0
+
+    from maneuver_detect.benchmark import TemporalSplit
+    from maneuver_detect.data.spacetrack import SpacetrackFetcher
+    from maneuver_detect.datasets import recipe, reconstruct
+    from maneuver_detect.datasets.catalogue import DATASET_VERSION
+    from maneuver_detect.errors import ManeuverDetectError
+    from maneuver_detect.labels.record import ManeuverLabel, OrbitClass
+    from maneuver_detect.models.foundation import calibrate_and_score, save_foundation_bundle
+    from maneuver_detect.schema import ManeuverType
+
+    minor = ".".join(DATASET_VERSION.split(".")[:2])
+    data_dir = Path(dataset_dir) if dataset_dir is not None else Path(f"dataset/v{minor}")
+    labels_by_norad: dict[int, list[ManeuverLabel]] = defaultdict(list)
+    for record in json.loads((data_dir / "labels.json").read_text()):
+        norad_id = record["norad_id"]
+        if norad_id is None:
+            continue
+        maneuver_type = record["maneuver_type"]
+        labels_by_norad[norad_id].append(
+            ManeuverLabel(
+                norad_id=norad_id,
+                epoch=pd.Timestamp(record["epoch"]).to_pydatetime(),
+                window_start=pd.Timestamp(record["window_start"]).to_pydatetime(),
+                window_end=pd.Timestamp(record["window_end"]).to_pydatetime(),
+                source=record["source"],
+                source_ref=record["source_ref"],
+                orbit_class=OrbitClass(record["orbit_class"]),
+                maneuver_type=ManeuverType(maneuver_type) if maneuver_type else None,
+                delta_v=None if record.get("delta_v") is None else float(record["delta_v"]),
+            )
+        )
+    split = TemporalSplit.from_json((data_dir / "splits.json").read_text())
+
+    print("Reconstructing the dataset from Space-Track (credentialed, rate-limited)...")
+    try:
+        dataset = reconstruct(recipe(), SpacetrackFetcher(), labels_by_norad)
+        series_by_norad = {obj.norad_id: obj.series for obj in dataset.objects}
+        bundle, report = calibrate_and_score(
+            backend, series_by_norad, dataset.labels, split, revision=revision, finetune=finetune
+        )
+    except (ManeuverDetectError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    save_foundation_bundle(bundle, out)
+    print(f"calibrated {backend}-residual -> {out}")
+    print("\nHeld-out test split (recall @ operating point, above-floor population):")
+    print(report.summary())
     return 0

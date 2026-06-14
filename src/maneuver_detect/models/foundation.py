@@ -49,6 +49,7 @@ __all__ = [
     "FOUNDATION_THRESHOLD_SWEEP",
     "FoundationBundle",
     "FoundationDefault",
+    "calibrate_and_score",
     "calibrate_thresholds",
     "finetune_chronos",
     "load_foundation_bundle",
@@ -273,6 +274,43 @@ def score_bundle(
     metadata = dict(bundle.metadata)
     metadata["test_report"] = json.loads(report.to_json())
     return replace(bundle, metadata=metadata), report
+
+
+def calibrate_and_score(
+    backend: str,
+    series_by_norad: Mapping[int, pd.DataFrame],
+    labels: Sequence[ManeuverLabel],
+    split: TemporalSplit,
+    *,
+    revision: str = "main",
+    checkpoint_id: str | None = None,
+    context_length: int | None = None,
+    finetune: bool = False,
+    finetune_steps: int = 200,
+    candidates: Sequence[float] = FOUNDATION_THRESHOLD_SWEEP,
+    forecaster: Forecaster | None = None,
+) -> tuple[FoundationBundle, ScoreReport]:
+    """Assemble, optionally fine-tune, calibrate on val, and score on test — one offline run.
+
+    The end-to-end offline driver behind ``maneuver-detect models calibrate-foundation`` and
+    ``examples/calibrate_foundation_real.py``: build the zero-shot bundle, optionally apply a light
+    Chronos fine-tune (``finetune=True``, GPU), tune the residual-z operating point on the **val**
+    split, then score the result on the held-out **test** split and record the per-class metrics
+    onto the bundle's model-card provenance. Returns the metrics-bearing bundle and the test report.
+    Pass ``forecaster`` to reuse one pre-built (or stand-in) model across the run — for the tests
+    to exercise the orchestration without the ``[foundation]`` extra; otherwise the forecaster is
+    built from the bundle (and rebuilt after a fine-tune so the scored model is the fine-tuned one).
+    """
+    bundle = zero_shot_bundle(
+        backend, revision=revision, checkpoint_id=checkpoint_id, context_length=context_length
+    )
+    if finetune:
+        bundle = finetune_chronos(bundle, series_by_norad, max_steps=finetune_steps)
+    resolved = forecaster if forecaster is not None else build_forecaster_for(bundle)
+    bundle, _ = calibrate_thresholds(
+        bundle, series_by_norad, labels, split, forecaster=resolved, candidates=candidates
+    )
+    return score_bundle(bundle, series_by_norad, labels, split, forecaster=resolved)
 
 
 def build_forecaster_for(bundle: FoundationBundle) -> Forecaster:

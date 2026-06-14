@@ -23,6 +23,7 @@ from maneuver_detect.models.foundation import (
     FOUNDATION_DEFAULTS,
     FOUNDATION_THRESHOLD_SWEEP,
     FoundationBundle,
+    calibrate_and_score,
     calibrate_thresholds,
     load_foundation_bundle,
     save_foundation_bundle,
@@ -162,3 +163,26 @@ def test_score_bundle_records_the_test_report() -> None:
     recorded = scored.metadata["test_report"]
     assert isinstance(recorded["per_class"], dict)
     assert "LEO" in recorded["per_class"]
+
+
+def test_calibrate_and_score_runs_the_full_flow() -> None:
+    # The end-to-end driver: assemble a zero-shot bundle, calibrate on val (object 1), score on test
+    # (object 2). Exercised with the stand-in forecaster, so it needs no [foundation] extra.
+    val_frame = synthetic_series(norad_id=1, seed=0, n=900, burns=(Burn(400, "in_track_ms", 4.0),))
+    test_frame = synthetic_series(norad_id=2, seed=1, n=900, burns=(Burn(700, "in_track_ms", 4.0),))
+    labels = [_label(val_frame, 400, 4.0), _label(test_frame, 700, 4.0)]
+    split = _split(val=frozenset({1}), test=frozenset({2}))
+
+    bundle, report = calibrate_and_score(
+        "chronos",
+        {1: val_frame, 2: test_frame},
+        labels,
+        split,
+        forecaster=DriftContinuationForecaster(),
+    )
+
+    assert isinstance(report, ScoreReport)
+    # The bundle came out calibrated (val) and scored (test): both rounds rode through.
+    assert set(bundle.class_thresholds) == {oc.value for oc in OrbitClass}
+    assert "calibration" in bundle.metadata
+    assert isinstance(bundle.metadata["test_report"]["per_class"], dict)
