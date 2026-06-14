@@ -103,6 +103,28 @@ def test_score_checkpoint_guides_without_credentials() -> None:
     assert "SPACETRACK_PASSWORD" in result.stdout
 
 
+def test_calibrate_foundation_real_guides_without_credentials() -> None:
+    env = os.environ.copy()
+    env.pop("SPACETRACK_USERNAME", None)
+    env.pop("SPACETRACK_PASSWORD", None)
+    # Valid args so argparse passes; the calibration then needs Space-Track and guides without it
+    # (no [foundation] extra is touched on the credentials-absent path).
+    result = _run("calibrate_foundation_real.py", "chronos", "chronos-residual.pt", env=env)
+    assert result.returncode == 0, result.stderr
+    assert "SPACETRACK_USERNAME" in result.stdout
+    assert "SPACETRACK_PASSWORD" in result.stdout
+
+
+def test_foundation_residual_example_runs_offline() -> None:
+    # Demonstrates the forecast-residual recipe with the dependency-free stand-in forecaster, so it
+    # runs without the [foundation] extra, credentials, or the network.
+    result = _run("foundation_residual.py")
+    assert result.returncode == 0, result.stderr
+    assert "forecast-residual" in result.stdout
+    assert "detected" in result.stdout
+    result.stdout.encode("ascii")  # the run-script stdout must stay ASCII on a cp1252 console
+
+
 def test_example_stdout_stays_ascii() -> None:
     # The example output is smoke-tested on a cp1252 Windows console, so it must stay ASCII
     # (the delta-v column prints as ``delta_v_estimate``, never a literal Greek delta).

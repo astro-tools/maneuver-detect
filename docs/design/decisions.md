@@ -29,7 +29,8 @@ Package `src/maneuver_detect/`, Python ≥ 3.10, Hatchling, `py.typed`:
 
 Stack: numpy / pandas; sgp4; astropy (internal only); torch + lightning (v0.2 models);
 huggingface_hub + datasets; gradio (v0.2 leaderboard). Optional **`[foundation]`** extra
-(chronos / timesfm, v0.3). Dev: pytest, pytest-cov, ruff, mypy, mkdocs-material, mkdocstrings.
+(chronos, v0.3 — TimesFM was wired then removed; see D14). Dev: pytest, pytest-cov, ruff, mypy,
+mkdocs-material, mkdocstrings.
 
 ## D2 — Dataset distribution model — recipe-first hybrid (V1)
 
@@ -244,6 +245,7 @@ turned into a maneuver detector") and pins the model choice and the optional-ext
   standardization and a calibrated confidence, Bolt inference is CPU-cheap, and the 8M–710M size range
   fits any budget. **TimesFM** (`timesfm-1.0-200m` / `2.0-500m`) stays wired as a drop-in second entry
   on the same forecaster-agnostic recipe — a cross-check at near-zero extra cost, not a parallel build.
+  *(Amended at v0.3 implementation — TimesFM removed; see the ratification note below.)*
 - **Licence.** Both families publish **Apache-2.0** checkpoints, so a fine-tune is redistributable
   (D9: fine-tunes inherit the base) and the dep is permissive. The build **pins the checkpoint id +
   revision and confirms its Apache-2.0 card at ingest** before publishing a fine-tune (a licence is a
@@ -258,7 +260,43 @@ turned into a maneuver detector") and pins the model choice and the optional-ext
   at base install, in the CLI, or in the default test suite). `detectors/foundation.py` imports them
   **lazily**; foundation tests run only in a dedicated CI job with the extra installed
   (`importorskip`). Checkpoints are fetched from the HF Hub at runtime (the base `huggingface_hub`
-  dep), not vendored; fine-tune checkpoints ship a model card (D8).
+  dep), not vendored; fine-tune checkpoints ship a model card (D8). *(Amended at v0.3 implementation
+  — the shipped extra is `[foundation] = chronos-forecasting` only; TimesFM removed, below.)*
+
+**Ratified (amended) — implemented in the v0.3 baseline, Chronos only.** `detectors/foundation.py`
+ships **one** registered detector, `chronos-residual`, on the shared forecaster-agnostic
+forecast-residual pipeline (a `Forecaster` protocol, so a further backend can drop in later), reusing
+the D4 matcher / D5 inversion / D6 schema / D7 scorer verbatim. A `FoundationBundle`
+(`models/foundation.py`) — separate from the torch-network `ModelBundle`, so the v0.2 baselines are
+untouched — pins the backend, the Hub checkpoint id (`amazon/chronos-bolt-small`) and its revision,
+the rolling context length, the calibrated per-class thresholds, and an optional fine-tune
+`state_dict`; the offline driver provides zero-shot assembly, val-split threshold calibration through
+the shared benchmark, held-out scoring that back-fills the model card, and a light Chronos fine-tune
+(GPU when present, else CPU). The extra is exercised by a dedicated `importorskip` CI job; the
+minimal-install job still asserts it is absent from the base install.
+
+Two implementation findings amended the spike's plan:
+
+- **Standardise by a robust per-object MAD, not the model's per-gap predictive interval.** The
+  predictive interval D14.1 leaned on (and D14.4 cited as Chronos's edge) **collapses toward zero on
+  confident gaps**, blowing ordinary gaps into spurious infinite-z spikes — measured on real series,
+  it is unusable for per-gap thresholding (the open question V6 flagged about interval calibration on
+  element series, now answered). The detector standardises the forecast residual by the centred MAD
+  of the residuals instead (the V6 stand-in's stabiliser); the calibrated interval is left to the
+  uncertainty-calibration deliverable. On the v0.2 test split `chronos-residual` then reaches **LEO
+  ≈0.49 / MEO ≈0.54** above-floor recall at 1 FA/sat-year (beating the classical reference and the
+  v0.2 transformer on those classes); **GEO ≈0.08** stays the hard class (tiny station-keeping steps),
+  as for every detector.
+- **TimesFM removed.** The wired-in second entry was dropped: its zero-shot forecast is **not robust
+  on real noisy sub-daily LEO** (LEO recall 0.000 — sustained forecast biases that a transient filter
+  cannot remove, where Chronos stays solid), so it would ship a worse-than-classical card. This is
+  exactly why D14.4 made Chronos the lead; revisiting TimesFM (e.g. with a fine-tune) is a possible
+  future entry, not a v0.3 deliverable. The shipped extra is therefore `[foundation] =
+  chronos-forecasting`.
+
+The calibrated cutoff is frozen across classes for now (genuine per-class thresholds are a later
+deliverable). Publishing the bundle + card to the Hub and seeding the leaderboard is the offline
+credentialed step the driver feeds.
 
 Detail in [`spikes/v6-foundation-model-applicability.md`](spikes/v6-foundation-model-applicability.md).
 

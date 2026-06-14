@@ -13,6 +13,7 @@ from maneuver_detect.detectors.base import Detector
 
 __all__ = [
     "BiLstmDetector",
+    "ChronosResidualDetector",
     "ClassicalDetector",
     "Detector",
     "TransformerDetector",
@@ -60,13 +61,16 @@ def available_models() -> list[str]:
 
 # Register the built-in detectors. The imports sit at the foot of the module — after the registry
 # helpers — so importing the package both exposes the registry API and registers the detectors,
-# making them available to ``detect()`` without the caller importing their modules. The learned
-# detector defers its torch / model imports to construction time, so registering it here keeps
-# ``import maneuver_detect`` (and the classical path) free of the modelling stack.
+# making them available to ``detect()`` without the caller importing their modules. The learned and
+# foundation detectors defer their torch / chronos imports to construction time, so registering them
+# here keeps ``import maneuver_detect`` (and the classical path) free of the modelling and
+# foundation stacks.
 from maneuver_detect.detectors.bilstm import BiLstmDetector  # noqa: E402
 from maneuver_detect.detectors.classical import ClassicalDetector  # noqa: E402
+from maneuver_detect.detectors.foundation import ChronosResidualDetector  # noqa: E402
 from maneuver_detect.detectors.transformer import TransformerDetector  # noqa: E402
 
 register_detector(ClassicalDetector)
 register_detector(BiLstmDetector)
 register_detector(TransformerDetector)
+register_detector(ChronosResidualDetector)
