@@ -1,0 +1,74 @@
+name: Add a maneuver-label source
+description: Propose a new operator maneuver-label source to grow the dataset.
+title: "Add label source: <source>"
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Use this to propose a **new source of maneuver labels** — an operator announcement feed, a
+        published maneuver log, or a self-labelling method — to add to the dataset. For a source the
+        package already targets but fails to parse, use the "Source or format does not ingest"
+        template instead.
+  - type: input
+    id: source
+    attributes:
+      label: Source
+      description: The source and where it is published.
+      placeholder: "e.g. Galileo NAGUs (PLN_MANV), a new DORIS/IDS man.txt mission, a self-labelling method"
+    validations:
+      required: true
+  - type: dropdown
+    id: orbit_class
+    attributes:
+      label: Orbit class
+      description: Which class(es) this source labels.
+      multiple: true
+      options:
+        - LEO
+        - MEO
+        - GEO
+        - HEO
+    validations:
+      required: true
+  - type: dropdown
+    id: dv
+    attributes:
+      label: Does it carry Δv?
+      options:
+        - "Δv magnitude (and/or direction)"
+        - "Epoch-only (a maneuver window, no Δv)"
+    validations:
+      required: true
+  - type: textarea
+    id: licence
+    attributes:
+      label: Licence / redistribution terms
+      description: >-
+        The terms of use — the gate that decides how a source is handled. A source whose labels can be
+        redistributed is shipped; one that cannot is handled recipe-first (ship the fetch recipe and
+        parser, never the labels); one more restrictive than that is excluded. Link the terms.
+    validations:
+      required: true
+  - type: textarea
+    id: ingest
+    attributes:
+      label: Format and fetch
+      description: >-
+        How a label record is published (file format, per-notice text, an API) and how to fetch it.
+        Note whether it is machine-ingestible and how each labelled object maps to a NORAD id.
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample
+      description: >-
+        A small sample record, or a link to one. Confirm the sample is licensed so it can be attached;
+        if it cannot be redistributed, describe how to obtain it instead.
+      render: text
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Coverage (how many objects, which era), prior art, and any open questions.
