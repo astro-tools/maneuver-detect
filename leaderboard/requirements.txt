@@ -1,5 +1,5 @@
 # Dependencies for the Hugging Face Space (free CPU tier). The scorer is pure element-arithmetic —
 # no GPU, no torch needed at request time — but the package declares the full modelling stack, so the
 # install pulls it transitively. Pin maneuver-detect to the v0.2 line so the hosted scorer is fixed.
-gradio>=4.44
+gradio>=6.18
 maneuver-detect>=0.2.0,<0.3
