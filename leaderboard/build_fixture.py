@@ -107,6 +107,18 @@ def main() -> int:
         default=_ROOT / "transformer-base.pt",
         help="transformer checkpoint to seed the board with (skipped if absent)",
     )
+    parser.add_argument(
+        "--chronos",
+        type=Path,
+        default=_ROOT / "chronos-residual.pt",
+        help="Chronos forecast-residual bundle to seed the board with (skipped if absent)",
+    )
+    parser.add_argument(
+        "--timesfm",
+        type=Path,
+        default=_ROOT / "timesfm-residual.pt",
+        help="TimesFM forecast-residual bundle to seed the board with (skipped if absent)",
+    )
     args = parser.parse_args()
 
     if not _has_credentials():
@@ -118,12 +130,17 @@ def main() -> int:
     from maneuver_detect.datasets import recipe, reconstruct
     from maneuver_detect.detectors.bilstm import BiLstmDetector
     from maneuver_detect.detectors.classical import ClassicalDetector
+    from maneuver_detect.detectors.foundation import (
+        ChronosResidualDetector,
+        TimesFmResidualDetector,
+    )
     from maneuver_detect.detectors.transformer import TransformerDetector
     from maneuver_detect.models.checkpoint import load_bundle
     from maneuver_detect.models.evaluate import (
         detections_for_partition,
         scoring_inputs_for_partition,
     )
+    from maneuver_detect.models.foundation import load_foundation_bundle
 
     labels_by_norad = _load_labels_by_norad(_DATA / "labels.json")
     splits_text = (_DATA / "splits.json").read_text()
@@ -158,6 +175,20 @@ def main() -> int:
         seeds.append(("transformer-base", TransformerDetector(load_bundle(args.transformer))))
     else:
         print(f"skipping transformer seed: {args.transformer} not found")
+    # The foundation seeds build their forecaster from the [foundation] extra (chronos / timesfm),
+    # so this environment must have it installed; the bundle pins the Apache-2.0 checkpoint.
+    if args.chronos.exists():
+        seeds.append(
+            ("chronos-residual", ChronosResidualDetector(load_foundation_bundle(args.chronos)))
+        )
+    else:
+        print(f"skipping chronos-residual seed: {args.chronos} not found")
+    if args.timesfm.exists():
+        seeds.append(
+            ("timesfm-residual", TimesFmResidualDetector(load_foundation_bundle(args.timesfm)))
+        )
+    else:
+        print(f"skipping timesfm-residual seed: {args.timesfm} not found")
 
     for name, detector in seeds:
         detections = detections_for_partition(

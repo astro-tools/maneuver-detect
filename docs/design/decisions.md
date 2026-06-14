@@ -260,6 +260,21 @@ turned into a maneuver detector") and pins the model choice and the optional-ext
   (`importorskip`). Checkpoints are fetched from the HF Hub at runtime (the base `huggingface_hub`
   dep), not vendored; fine-tune checkpoints ship a model card (D8).
 
+**Ratified — implemented in the v0.3 baseline.** `detectors/foundation.py` ships the two registered
+detectors `chronos-residual` (lead) and `timesfm-residual` (drop-in second entry) on the shared,
+forecaster-agnostic forecast-residual pipeline, reusing the D4 matcher / D5 inversion / D6 schema / D7
+scorer verbatim. A `FoundationBundle` (`models/foundation.py`) — separate from the torch-network
+`ModelBundle`, so the v0.2 baselines are untouched — pins the backend, the Hub checkpoint id and its
+revision, the rolling context length, the calibrated per-class thresholds, and an optional fine-tune
+`state_dict`; the offline driver provides zero-shot assembly, val-split threshold calibration through
+the shared benchmark, held-out scoring that back-fills the model card, and a light Chronos fine-tune.
+The extra is exercised by a dedicated `importorskip` CI job; the minimal-install job still asserts the
+foundation stack is absent from the base install. Two refinements ride along: the calibrated cutoff is
+frozen across classes for now (genuine per-class thresholds are a later deliverable), and the pinned
+checkpoints are the current Apache-2.0 revisions (`amazon/chronos-bolt-small`,
+`google/timesfm-2.5-200m-pytorch`). Measured zero-shot / fine-tuned numbers and the Hub publish are the
+offline credentialed step the driver feeds, not part of the implementation PR.
+
 Detail in [`spikes/v6-foundation-model-applicability.md`](spikes/v6-foundation-model-applicability.md).
 
 ---

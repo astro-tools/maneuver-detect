@@ -12,9 +12,19 @@ CPU-only, and cached on disk.
 | `classical` | In the package | Rule-based reference detector; the default, no download. |
 | `bilstm-base` | [`astro-tools/maneuver-detect-bilstm-base`](https://huggingface.co/astro-tools/maneuver-detect-bilstm-base) | Learned BiLSTM; checkpoint pulled from the Hub. |
 | `transformer-base` | [`astro-tools/maneuver-detect-transformer-base`](https://huggingface.co/astro-tools/maneuver-detect-transformer-base) | Learned ~10M-parameter transformer; checkpoint pulled from the Hub. |
+| `chronos-residual` | [`astro-tools/maneuver-detect-chronos-residual`](https://huggingface.co/astro-tools/maneuver-detect-chronos-residual) | Foundation-model forecast-residual detector (Chronos); needs the `[foundation]` extra. |
+| `timesfm-residual` | [`astro-tools/maneuver-detect-timesfm-residual`](https://huggingface.co/astro-tools/maneuver-detect-timesfm-residual) | The same recipe on TimesFM, the drop-in second entry; needs the `[foundation]` extra. |
 
 A learned model localises maneuvers in the element series; the same vis-viva / Gauss physics
 inversion the classical detector uses then recovers the Δv magnitude and type for each detection.
+
+The foundation baselines (`chronos-residual`, `timesfm-residual`) take a different route to the same
+canonical output: rather than a trained classifier, they **forecast** the element series with a
+pretrained time-series model and flag the gaps where the realised series departs from the forecast
+beyond a per-orbit-class threshold (a learned quiet-dynamics prior in place of the classical
+detector's hand-built one); the physics inversion is then identical. They live behind the optional
+`[foundation]` extra, so the base install stays light — `pip install "maneuver-detect[foundation]"`
+to use them.
 
 On the frozen v0.2 benchmark both learned baselines beat the classical reference on the headline
 metric — above-floor recall at the fixed false-alarm rate — driven by the LEO and GEO classes, while
@@ -55,8 +65,9 @@ windowing parameters, so a download reproduces the exact training-time inference
   to load from a different revision — useful for validating a published artifact before its release
   tag exists.
 - To run a locally-trained checkpoint instead of the Hub one, point the matching environment variable
-  at the bundle: `MANEUVER_DETECT_BILSTM_CHECKPOINT` or `MANEUVER_DETECT_TRANSFORMER_CHECKPOINT`. The
-  resolution order is an explicitly-passed bundle, then that env var, then the Hub.
+  at the bundle: `MANEUVER_DETECT_BILSTM_CHECKPOINT` / `MANEUVER_DETECT_TRANSFORMER_CHECKPOINT`, or
+  `MANEUVER_DETECT_CHRONOS_CHECKPOINT` / `MANEUVER_DETECT_TIMESFM_CHECKPOINT` for the foundation
+  bundles. The resolution order is an explicitly-passed bundle, then that env var, then the Hub.
 
 ## The dataset on the Hub
 
@@ -99,9 +110,19 @@ HF_TOKEN=... maneuver-detect models publish bilstm-base ./bilstm-base.pt
 HF_TOKEN=... maneuver-detect models publish transformer-base ./transformer-base.pt
 ```
 
+The foundation baselines publish the same way — `models publish` routes a `*-residual` name to the
+foundation publisher, whose bundle pins the Apache-2.0 forecaster checkpoint and the calibrated
+per-class thresholds rather than network weights:
+
+```bash
+HF_TOKEN=... maneuver-detect models publish chronos-residual ./chronos-residual.pt
+HF_TOKEN=... maneuver-detect models publish timesfm-residual ./timesfm-residual.pt
+```
+
 Each model card is generated from the bundle's own provenance — the training-data version, the
-measured per-class test recall/precision, and the architecture — so the documented numbers cannot
-drift from the weights they describe. The per-class metrics are recorded
+measured per-class test recall/precision, and the architecture (or, for a foundation bundle, the
+pinned forecaster and its thresholds) — so the documented numbers cannot drift from the weights they
+describe. The per-class metrics are recorded
 into the checkpoint when the training/eval driver scores the held-out test split; an existing
 checkpoint can be back-filled without retraining via `examples/score_checkpoint.py` (credentialed,
 CPU). The dataset and the checkpoints carry the same version tag, kept in lockstep with the library
