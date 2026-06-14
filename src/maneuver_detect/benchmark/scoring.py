@@ -128,16 +128,30 @@ def score(
 def read_predictions(text: str) -> list[Maneuver]:
     """Parse a predictions file (a JSON array of canonical maneuver records) into the schema.
 
-    The inverse of :func:`predictions_to_json`. Each record carries the canonical columns
-    (:data:`~maneuver_detect.schema.COLUMNS`); a ``null`` ``delta_v_estimate`` becomes ``None``.
-    Raises :class:`ValueError` on a record missing a canonical field.
+    The inverse of :func:`predictions_to_json`. Each record must carry **exactly** the canonical
+    columns (:data:`~maneuver_detect.schema.COLUMNS`) and nothing else; a ``null``
+    ``delta_v_estimate`` becomes ``None``. The schema is fixed both ways: a record missing a
+    canonical field *or* carrying any field beyond them is rejected with :class:`ValueError`, so a
+    submission cannot smuggle a query or any other non-prediction payload past the reader (the D12
+    fixed-schema integrity surface). A non-array payload, or a record that is not a JSON object, is
+    rejected the same way.
     """
     records = json.loads(text)
+    if not isinstance(records, list):
+        raise ValueError("predictions file must be a JSON array of maneuver records")
+    allowed = set(COLUMNS)
     maneuvers: list[Maneuver] = []
     for record in records:
+        if not isinstance(record, dict):
+            raise ValueError(
+                f"prediction record must be a JSON object, got {type(record).__name__}"
+            )
         missing = [column for column in COLUMNS if column not in record]
         if missing:
             raise ValueError(f"prediction record is missing canonical fields: {missing}")
+        unknown = sorted(set(record) - allowed)
+        if unknown:
+            raise ValueError(f"prediction record carries unknown fields: {unknown}")
         delta_v = record["delta_v_estimate"]
         maneuvers.append(
             Maneuver(

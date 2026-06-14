@@ -10,6 +10,7 @@ match, a type confusion, and a class with no labels.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -297,6 +298,23 @@ def test_read_predictions_rejects_a_record_missing_a_canonical_field() -> None:
     bad = '[{"epoch": "2024-01-01T00:00:00+00:00", "confidence": 0.9}]'
     with pytest.raises(ValueError, match="missing canonical fields"):
         read_predictions(bad)
+
+
+def test_read_predictions_enforces_a_fixed_schema_both_ways() -> None:
+    # The schema is fixed in both directions (the D12 fixed-schema integrity surface): a record
+    # carrying any field beyond the canonical columns is rejected, so a submission cannot smuggle a
+    # query or any other payload past the reader even when every required field is present.
+    smuggled = json.loads(predictions_to_json(_scenario_detections()[:1]))
+    smuggled[0]["give_me"] = "the labels"
+    with pytest.raises(ValueError, match="unknown fields"):
+        read_predictions(json.dumps(smuggled))
+
+    # A non-array payload, or a record that is not a JSON object, is rejected the same way rather
+    # than iterated over and mis-parsed.
+    with pytest.raises(ValueError, match="must be a JSON array"):
+        read_predictions('{"give_me": "the labels"}')
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        read_predictions('["SELECT * FROM labels"]')
 
 
 # --- per-class confidence intervals -------------------------------------------------------------
