@@ -57,18 +57,24 @@ out, identical across runs and platforms. The report serialises to canonical JSO
 epochs, shortest-round-trip floats — so the same predictions reproduce the same numbers **byte-for-byte**.
 Reproducing the reported baseline numbers from committed prediction files is a continuous-integration check.
 
-The scorer lives in `maneuver_detect.benchmark`:
+The scorer lives in `maneuver_detect.benchmark`. It takes the predictions, the held-out above-floor test
+labels, and each object's exposure, and returns a per-class report:
 
 ```python
+from pathlib import Path
+
 from maneuver_detect.benchmark import read_predictions, score
 
-predictions = read_predictions("predictions.json")   # canonical maneuver records
-report = score(predictions, labels)                   # held-out, per-object labels
-print(report.headline())                              # recall over the above-floor population, per class
+predictions = read_predictions(Path("predictions.json").read_text())  # canonical maneuver records
+report = score(predictions, labels, exposure)   # held-out ScoredLabels + per-object ObjectExposure
+print(report.headline())                        # above-floor recall at the operating point, per class
 ```
 
-The [reproduce-the-baseline example](https://github.com/astro-tools/maneuver-detect/blob/main/examples/reproduce_baseline.py)
-runs this end to end on a synthetic labelled series.
+`read_predictions` parses the canonical predictions **text** (not a path); `labels` are the held-out
+`ScoredLabel`s and `exposure` the per-object `ObjectExposure` (observation-years — the satellite-year
+denominator of the false-alarm rate). The
+[reproduce-the-baseline example](https://github.com/astro-tools/maneuver-detect/blob/main/examples/reproduce_baseline.py)
+constructs all three and runs the scorer end to end on a synthetic labelled series.
 
 ## Reproducibility
 
