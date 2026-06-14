@@ -23,12 +23,25 @@ from typing import Any
 import torch
 from torch import nn
 
+from maneuver_detect.errors import ManeuverDetectError
 from maneuver_detect.models.bilstm import NETWORK_KIND as BILSTM_KIND
 from maneuver_detect.models.bilstm import build_bilstm
 from maneuver_detect.models.transformer import NETWORK_KIND as TRANSFORMER_KIND
 from maneuver_detect.models.transformer import build_transformer
 
 __all__ = ["ModelBundle", "build_network", "load_bundle", "save_bundle"]
+
+# Everything inference needs from a saved bundle. ``metadata`` is optional (provenance only); these
+# are not, so a bundle missing any of them is a malformed / truncated / version-mismatched artifact.
+_REQUIRED_KEYS = (
+    "network_config",
+    "state_dict",
+    "normaliser",
+    "train_hparams",
+    "window",
+    "stride",
+    "threshold",
+)
 
 # The network factories keyed by the bundle's ``network`` tag, so the same loader rebuilds either
 # architecture from its stored config.
@@ -80,8 +93,23 @@ def save_bundle(bundle: ModelBundle, path: str | Path) -> None:
 
 
 def load_bundle(path: str | Path, *, map_location: str = "cpu") -> ModelBundle:
-    """Load a :class:`ModelBundle` saved by :func:`save_bundle` (CPU by default)."""
+    """Load a :class:`ModelBundle` saved by :func:`save_bundle` (CPU by default).
+
+    Raises :class:`~maneuver_detect.errors.ManeuverDetectError` if the file is not a bundle dict, or
+    is missing any key inference needs — so a truncated or version-mismatched Hub artifact surfaces
+    as a clear error naming the path and the missing fields, not a bare ``KeyError``.
+    """
     payload: dict[str, Any] = torch.load(Path(path), map_location=map_location, weights_only=False)
+    if not isinstance(payload, dict):
+        raise ManeuverDetectError(
+            f"checkpoint at {Path(path)} is not a model bundle "
+            f"(expected a dict, got {type(payload).__name__})"
+        )
+    missing = [key for key in _REQUIRED_KEYS if key not in payload]
+    if missing:
+        raise ManeuverDetectError(
+            f"checkpoint at {Path(path)} is missing required bundle keys: {missing}"
+        )
     return ModelBundle(
         network_config=payload["network_config"],
         state_dict=payload["state_dict"],

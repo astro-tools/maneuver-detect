@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
+from pathlib import Path
 
+import pytest
+import torch
+
+from maneuver_detect.errors import ManeuverDetectError
 from maneuver_detect.models.bilstm import BiLstmConfig
-from maneuver_detect.models.checkpoint import ModelBundle, build_network
+from maneuver_detect.models.checkpoint import ModelBundle, build_network, load_bundle
 from maneuver_detect.models.module import TrainHyperParams
 from maneuver_detect.models.transformer import TransformerConfig
 
@@ -114,3 +118,30 @@ def test_model_bundle_metadata_defaults_to_empty() -> None:
         threshold=0.5,
     )
     assert bundle.metadata == {}
+
+
+def test_load_bundle_reports_a_missing_required_key_clearly(tmp_path: Path) -> None:
+    # A truncated or version-mismatched Hub artifact (here, the train-split normaliser dropped) must
+    # surface to the detect() caller as a clear typed error naming the missing field, not a bare
+    # KeyError from a raw subscript.
+    payload = {
+        "network_config": {"network": "bilstm"},
+        "state_dict": {},
+        "train_hparams": {},
+        "window": 64,
+        "stride": 32,
+        "threshold": 0.5,
+        # "normaliser" deliberately omitted.
+    }
+    path = tmp_path / "broken.pt"
+    torch.save(payload, path)
+    with pytest.raises(ManeuverDetectError, match=r"missing required bundle keys.*normaliser"):
+        load_bundle(path)
+
+
+def test_load_bundle_rejects_a_non_bundle_file(tmp_path: Path) -> None:
+    # A bare tensor / state_dict saved by mistake is not a bundle — reject it with a clear message.
+    path = tmp_path / "tensor.pt"
+    torch.save(torch.zeros(3), path)
+    with pytest.raises(ManeuverDetectError, match="is not a model bundle"):
+        load_bundle(path)
