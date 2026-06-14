@@ -188,6 +188,13 @@ def _local_linear_trend(t_days: FloatArray, values: FloatArray, halfwidth: int) 
     drag decay) is tracked and the residual ``values - trend`` keeps only the anomalous step.
     Computed once over the whole series — not per candidate gap — so it is ``O(n · halfwidth)``,
     not the ``O(n²)`` the per-gap recomputation the V5 note warns against would cost.
+
+    Being *symmetric* (two-sided, as D11.3 specifies), the fit also absorbs a known, bounded share
+    of a real maneuver step into the ``halfwidth`` tokens either side of it: a step of magnitude
+    ``s`` leaves ``s · 2·halfwidth / (2·halfwidth + 1)`` on the bracketing gap's delta and an equal,
+    opposite ``-s / (2·halfwidth + 1)`` on each neighbour within the window (zero beyond it). This
+    intra-object smear is inherent to the centred fit, not a leak across the held-out boundary; its
+    magnitude is pinned by a test so the contamination radius cannot silently grow.
     """
     n = values.shape[0]
     trend = np.empty(n, dtype=np.float64)
