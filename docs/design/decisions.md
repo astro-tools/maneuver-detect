@@ -1,4 +1,4 @@
-# maneuver-detect — design decisions (D1–D12)
+# maneuver-detect — design decisions (D1–D14)
 
 The frozen decision record, consolidating the prerequisite spikes (under [`spikes/`](spikes/)) and the
 project charter. **No implementation lands until it matches this record.** Each decision states the call
@@ -8,7 +8,10 @@ and its rationale/source. The detailed, implementable benchmark contract lives i
 **D1–D10** are the v0.1 freeze (V1–V4): D2–D5 lifted from the merged spike records, D1 and D6–D10 from
 the charter and the spike implications. **D11** is the first v0.2 decision — the irregular-sampling input
 contract from V5, gating the learned baselines. **D12** settles V7 — leaderboard integrity and the
-single-GPU training budget — gating the public leaderboard Space and the baseline training.
+single-GPU training budget — gating the public leaderboard Space and the baseline training. **D13**
+extends the label-source set for the v0.2 dataset growth (the V2 follow-up survey). **D14** is the first
+v0.3 decision — the foundation-model baseline (Chronos/TimesFM forecast-residual detector) and the
+`[foundation]` extra contract, from V6, gating the v0.3 baseline detector.
 
 ---
 
@@ -221,11 +224,52 @@ Detail in [`spikes/v2-followup-label-sources.md`](spikes/v2-followup-label-sourc
 
 ---
 
+## D14 — Foundation-model baseline + the `[foundation]` extra contract (V6) — *v0.3*
+
+The v0.3 foundation-model baseline is a **forecast-residual detector** built on a pretrained
+time-series model, from the V6 dry-run of the recipe against the real scorer plus the licence and
+single-GPU budget findings. It resolves the charter's V6 prerequisite ("can a foundation model be
+turned into a maneuver detector") and pins the model choice and the optional-extra contract.
+
+- **Recipe — forecast-residual thresholding.** Forecast each object's mean-element series (the D11
+  encoding) with the pretrained model, standardize the residual by the model's predictive interval,
+  and threshold it **per orbit class** (the D4 detectability floor in residual units), then NMS per
+  object. The model replaces **only** the classical detector's hand-built quiet-dynamics prior with a
+  learned conditional forecast; the **D4** matcher, **D5** Δv/type inversion, **D6** schema, and
+  **D7** scorer are reused unchanged. The predictive interval feeds the v0.3 uncertainty calibration
+  (it is what makes the D6 `confidence` column meaningful). Proven end-to-end against the shipped
+  scorer in V6.
+- **Model choice — Chronos leads, TimesFM is the second entry.** **Chronos** (lead: `chronos-bolt-*` /
+  `chronos-t5-*`) is chosen for the baseline: native probabilistic quantiles give clean residual
+  standardization and a calibrated confidence, Bolt inference is CPU-cheap, and the 8M–710M size range
+  fits any budget. **TimesFM** (`timesfm-1.0-200m` / `2.0-500m`) stays wired as a drop-in second entry
+  on the same forecaster-agnostic recipe — a cross-check at near-zero extra cost, not a parallel build.
+- **Licence.** Both families publish **Apache-2.0** checkpoints, so a fine-tune is redistributable
+  (D9: fine-tunes inherit the base) and the dep is permissive. The build **pins the checkpoint id +
+  revision and confirms its Apache-2.0 card at ingest** before publishing a fine-tune (a licence is a
+  per-revision property) — the "confirm at ingest" discipline D13 used for BeiDou.
+- **Budget (reuses V7).** **Zero-shot residual detection trains nothing** (inference only — zero
+  GPU-hours, runnable on the free CPU/T4 tiers), so the baseline ships zero-shot first. A **light
+  fine-tune** (full small/base checkpoint or LoRA) over the v0.2-scale window set is `≈ 3 × 10¹⁷` FLOP
+  — the same hours-on-one-≤24 GB-GPU band V7 pinned (< ~8 GPU-h, < ~16 GB, < ~$50 / $0 on free tiers).
+  Measured figures land on the v0.3 model card against the V7 acceptance gate (D8).
+- **`[foundation]` extra contract.** `[foundation] = chronos-forecasting, timesfm` (both Apache-2.0)
+  stays an **optional extra the base install excludes** (D1/D10 decoupling — no torch-foundation stack
+  at base install, in the CLI, or in the default test suite). `detectors/foundation.py` imports them
+  **lazily**; foundation tests run only in a dedicated CI job with the extra installed
+  (`importorskip`). Checkpoints are fetched from the HF Hub at runtime (the base `huggingface_hub`
+  dep), not vendored; fine-tune checkpoints ship a model card (D8).
+
+Detail in [`spikes/v6-foundation-model-applicability.md`](spikes/v6-foundation-model-applicability.md).
+
+---
+
 *Sources: [`spikes/v1-dataset-redistribution.md`](spikes/v1-dataset-redistribution.md),
 [`spikes/v2-label-sources.md`](spikes/v2-label-sources.md),
 [`spikes/v2-followup-label-sources.md`](spikes/v2-followup-label-sources.md),
 [`spikes/v3-detectability-floor.md`](spikes/v3-detectability-floor.md),
 [`spikes/v4-dv-inversion.md`](spikes/v4-dv-inversion.md),
 [`spikes/v5-irregular-sampling-encoding.md`](spikes/v5-irregular-sampling-encoding.md),
+[`spikes/v6-foundation-model-applicability.md`](spikes/v6-foundation-model-applicability.md),
 [`spikes/v7-leaderboard-integrity-and-compute-budget.md`](spikes/v7-leaderboard-integrity-and-compute-budget.md),
 and the project charter.*
