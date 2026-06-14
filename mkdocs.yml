@@ -43,6 +43,7 @@ nav:
   - Dataset and labels: dataset.md
   - Models and the Hub: models.md
   - Benchmark protocol: benchmark.md
+  - Leaderboard: leaderboard.md
   - Output schema and Δv inversion: schema.md
   - Design decisions: decisions.md
   - API reference: api.md

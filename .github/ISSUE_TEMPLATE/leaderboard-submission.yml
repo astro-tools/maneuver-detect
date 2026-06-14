@@ -1,0 +1,57 @@
+name: Leaderboard submission problem
+description: Report a problem submitting to or scoring on the public leaderboard.
+title: "Leaderboard: <short summary>"
+labels: ["type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Use this for a problem with the
+        [public leaderboard](https://huggingface.co/spaces/astro-tools/maneuver-detect-leaderboard) — a
+        submission rejected, a score that looks wrong, the rate limit, or the Space erroring. For a
+        defect in the package's own scorer or `read_predictions`, use the Bug template instead.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What went wrong
+      options:
+        - Submission was rejected or failed to upload
+        - Score looks wrong or unexpected
+        - Rate limit / submission cadence
+        - The Space errored or was unreachable
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: >-
+        What you did and what the board returned — the message verbatim, the per-class numbers, or the
+        error. Do not paste held-out labels.
+    validations:
+      required: true
+  - type: textarea
+    id: what_expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: method
+    attributes:
+      label: Method name submitted
+      description: The name you entered for the submission, if any.
+  - type: input
+    id: hf_user
+    attributes:
+      label: Hugging Face user id
+      description: The user id the submission was keyed to — helps trace the rate limit and your row.
+  - type: textarea
+    id: predictions
+    attributes:
+      label: Predictions sample
+      description: >-
+        A few records from the predictions.json you submitted (the schema fields) — enough to reproduce
+        a rejection, not the whole file.
+      render: json

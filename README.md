@@ -12,9 +12,10 @@ maneuver-detect takes a satellite's public TLE history and returns a DataFrame o
 maneuvers — each with a detection epoch, a calibrated confidence, a maneuver type
 (in-track / cross-track / radial), and a Δv estimate. It ships a curated, reconstructable,
 labelled dataset built from public catalog data and operator maneuver announcements; a classical
-reference detector with a vis-viva / Gauss-variational Δv inversion; and a frozen, leak-free
-benchmark protocol so a new detection method can be measured against prior work on the same
-splits. See the [changelog](CHANGELOG.md) for released functionality.
+reference detector and learned (BiLSTM and transformer) baselines distributed through the Hugging
+Face Hub, all sharing a vis-viva / Gauss-variational Δv inversion; and a frozen, leak-free
+benchmark protocol — with a public leaderboard — so a new detection method can be measured against
+prior work on the same splits. See the [changelog](CHANGELOG.md) for released functionality.
 
 ## What this is
 
@@ -33,9 +34,12 @@ the baseline every learned model must beat.
 from maneuver_detect import detect, datasets
 
 history = datasets.tle_history(norad_id=25544, start="2024-01-01")
-maneuvers = detect(history, model="classical")
+maneuvers = detect(history, model="transformer-base")   # learned baseline, pulled from the Hub on first use
 # DataFrame columns: epoch, confidence, type, delta_v_estimate, plus provenance
 ```
+
+`"classical"` is the no-download default; the learned `"bilstm-base"` and `"transformer-base"` models pull
+their checkpoints from the Hugging Face Hub on first use (CPU-only, cached on disk).
 
 From the command line, on a NORAD id (fetched live) or a local TLE file:
 
@@ -59,6 +63,10 @@ runs the classical detector through the benchmark scorer on a labelled series.
 - **Classical baseline** — a rule-based reference detector (time-aware Holt smoothing, a
   multi-element jump rule, and the vis-viva / Gauss Δv inversion) that ships in the package. It is
   the baseline every learned model must beat.
+- **Learned baselines** — a BiLSTM and a ~10M-parameter transformer detector, distributed through the
+  Hugging Face Hub and selected by name (`detect(history, model="transformer-base")`). Each localises
+  maneuvers in the element series and reuses the same Δv inversion; inference is CPU-only and pulled on
+  first use.
 - **Benchmark** — frozen, leak-free train / val / test splits (by satellite and time), the
   detection-matching rule, the per-class metric (precision/recall at a fixed false-alarm rate), and
   a deterministic scorer that reproduces the published numbers from a committed predictions file.
@@ -67,8 +75,10 @@ The dataset and the learned-model checkpoints are distributed through the
 [Hugging Face Hub](https://huggingface.co/astro-tools): `detect(history, model="bilstm-base")` (or
 `"transformer-base"`) pulls the checkpoint on first use — CPU-only, cached on disk, nothing fetched at
 install time — and the dataset is downloadable with the `datasets` accessor (see
-[Models and the Hub](https://astro-tools.github.io/maneuver-detect/models/)). A hosted public
-leaderboard is planned. The
+[Models and the Hub](https://astro-tools.github.io/maneuver-detect/models/)). A public
+[leaderboard](https://huggingface.co/spaces/astro-tools/maneuver-detect-leaderboard) scores any method on
+the frozen test split with the shipped deterministic scorer and ranks it against the baselines (see the
+[how-to-submit guide](https://astro-tools.github.io/maneuver-detect/leaderboard/)). The
 [dataset](https://astro-tools.github.io/maneuver-detect/dataset/) and
 [benchmark](https://astro-tools.github.io/maneuver-detect/benchmark/) references document the source
 terms and the full protocol.
@@ -109,8 +119,9 @@ maneuver-detect supports Python 3.10, 3.11, and 3.12.
 
 Full documentation is at
 [astro-tools.github.io/maneuver-detect](https://astro-tools.github.io/maneuver-detect/) — getting
-started, the dataset and label-source reference, the benchmark protocol, the output schema and
-Δv-inversion reference, the frozen design decisions, and the API reference.
+started, the dataset and label-source reference, the models-and-Hub reference, the benchmark protocol,
+the leaderboard how-to-submit guide, the output schema and Δv-inversion reference, the frozen design
+decisions, and the API reference.
 
 ## Development
 
@@ -120,7 +131,7 @@ cd maneuver-detect
 uv sync --all-groups
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and local checks. The frozen v0.1 design
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and local checks. The frozen design
 decisions live in [`docs/design/`](docs/design/).
 
 ## License

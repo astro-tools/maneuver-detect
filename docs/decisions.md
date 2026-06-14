@@ -1,13 +1,15 @@
-# Design decisions (D1–D10)
+# Design decisions (D1–D13)
 
-The frozen decision record for v0.1. It consolidates the prerequisite analysis (the dataset-redistribution,
-label-source, detectability-floor, and Δv-inversion studies) and the project charter into ten decisions
-that fix the shape of the dataset, the benchmark, and the library contract. Each decision states the call
-and its rationale; the implementable benchmark contract is on the [benchmark protocol](benchmark.md) page,
-and the output schema and Δv inversion on the [schema reference](schema.md) page.
+The frozen decision record. It consolidates the prerequisite analysis (the dataset-redistribution,
+label-source, detectability-floor, Δv-inversion, irregular-sampling, and leaderboard-integrity studies) and
+the project charter into the decisions that fix the shape of the dataset, the benchmark, and the library
+contract. **D1–D10 fix the v0.1 surface; D11–D13 the v0.2 additions** — the learned baselines, the public
+leaderboard, and the dataset-growth pass. Each decision states the call and its rationale; the implementable
+benchmark contract is on the [benchmark protocol](benchmark.md) page, and the output schema and Δv inversion
+on the [schema reference](schema.md) page.
 
-The record is **frozen by release** — the v0.1 surface matches it, and any change is a version bump with a
-documented rationale.
+The record is **frozen by release** — each release's surface matches it, and any change is a version bump with
+a documented rationale.
 
 ---
 
@@ -114,4 +116,63 @@ milestones, not v0.1.
 
 ---
 
-*Derived from the v0.1 prerequisite studies and the project charter.*
+## D11 — Irregular-sampling input encoding
+
+The frozen encoding the learned baselines consume from the unevenly-sampled element series:
+**time-encoded element deltas, no interpolation.** Resampling to a fixed grid is rejected — interpolating
+across a gap fabricates values on the very interval a maneuver lives in and roughly **halves above-floor
+recall**. Element deltas are fed **signed** (the non-linear model recovers the burn magnitude itself, and the
+sign carries direction for the D5 type classification); timing is carried as a bounded `Δt` (time2vec)
+block. Secular drift (the J2 nodal regression and apsidal precession) is removed by a two-sided local-linear
+fit before the delta, angles are carried as the eccentricity vector plus an unwrapped node, and
+normalisation is per-class robust (median/IQR) on **train-split statistics only**. `Δt` stays in the input
+because step-rate and detrending need it; it carries only a modest, structural correlation with the label, so
+the benchmark **reports a timing-only baseline as the "cheating floor"** a submission must beat (D7) and keeps
+the headline metric as recall over the above-floor population (D4).
+
+## D12 — Leaderboard integrity and compute budget
+
+The public leaderboard is a **Gradio Space on the free Hugging Face CPU tier** — scoring is pure
+element-arithmetic (the D4 matching and per-class counts), CPU-cheap and deterministic (D8), so the board
+needs no GPU; the only GPU spend in the project is offline baseline training. Submissions are a
+`predictions.json` of canonical maneuver records (the [schema](schema.md)), and two surfaces keep it safe:
+the response is **aggregate-only** (per-class above-floor recall at the operating point plus the timing-only
+floor, never the per-label match table) and the submission is **fixed-schema** (the reader rejects any
+non-prediction payload, so a submission cannot carry a query). A courtesy **rate limit of 5 scored
+submissions per user per UTC day** guards against floods. **Compute budget:** both baselines are small
+(transformer ≈ 10⁷ parameters, BiLSTM ≈ 1–3 × 10⁶) on an `O(10⁵)`-window set, so a full v0.2 run — both
+baselines, a small sweep, and the finals — is **under ~1 GPU-day and trains in hours on a single ≤ 24 GB
+GPU**, no multi-GPU; a wall-clock and peak-memory acceptance gate is recorded on each checkpoint's model
+card.
+
+**Amendment — v0.2 ships a reproducibility board, not a hidden-label competition.** The integrity design
+assumed hidden test labels, but the open dataset (D8/D9) publishes the full answer key:
+`dataset/v0.2/labels.json` commits every label and `splits.json` marks the `test` objects, and git history
+makes that irretractable. The hidden-label firewall is therefore unbuildable on the v0.2 test set and is
+**dropped** — the public/private-subset split is removed, and the aggregate-only response and the rate limit
+are kept as **courtesy / abuse guards, not integrity guarantees**. The board is a **reproducibility /
+convenience board** on the public splits (see the [leaderboard guide](leaderboard.md)); a true hidden-label
+competition would need a separate, never-committed forward holdout and is deferred. One D2 consequence: the
+scorer's matching windows are real elset epochs (derived Space-Track data, not redistributed), so the board's
+scoring fixture is built offline from a credentialed reconstruction and supplied as private deploy-time data,
+not committed.
+
+## D13 — Expanded label sources for v0.2 dataset growth
+
+The v0.2 dataset-growth pass extends the D3 source set, resolving the "no public GEO maneuver-label source"
+gap and the open question on non-GPS GNSS notices:
+
+- **MEO — add Galileo NAGUs** (`PLN_MANV`): a second, independent MEO operator beyond GPS — public, no-auth,
+  machine-ingestible, GSAT → NORAD via the CelesTrak Galileo crosswalk, epoch-only. The terms are an
+  attribution-required reuse grant (© EU), so the labels are redistribution-clean and **shipped**. **GLONASS
+  is excluded** — its terms cap public reproduction more tightly than Space-Track and fail D2.
+- **GEO — self-labelled longitude-shift.** No openly-licensed GEO maneuver-label file exists to
+  redistribute, so v0.2 labels GEO best-effort from **longitude-shift inspection of the reconstructed
+  series**; GEO stays epoch-only. The operator-announced BeiDou feed remains a recipe-first option (the D2
+  pattern — ship the fetch recipe and parser, never redistributed labels), not shipped data.
+- **Scope and licence otherwise unchanged (D3 / D9):** LEO primary and Δv-labelled, HEO deferred; attribution
+  stacks per source, and no new redistribution restriction attaches.
+
+---
+
+*Derived from the v0.1 and v0.2 prerequisite studies and the project charter.*
