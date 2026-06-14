@@ -20,6 +20,12 @@ __all__ = ["TimesFmForecaster"]
 
 FloatArray = npt.NDArray[np.float64]
 
+#: Rolling one-step contexts decoded per batch. ``forecast`` batches its whole input list internally
+#: at ``global_batch_size`` (driven by ``per_core_batch_size``), padding the partial final batch and
+#: trimming back — so a larger batch is the difference between ~one decode per token (the default
+#: ``per_core_batch_size=1`` is catastrophically slow on a multi-year series) and a handful per
+#: channel. Mirrors the Chronos backend's batch.
+_FORECAST_BATCH = 256
 _SCALE_FLOOR = 1e-12
 
 
@@ -37,6 +43,7 @@ class TimesFmForecaster:
                 max_horizon=1,
                 normalize_inputs=True,
                 use_continuous_quantile_head=True,
+                per_core_batch_size=_FORECAST_BATCH,
             )
         )
         self._model = model

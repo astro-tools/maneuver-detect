@@ -526,11 +526,16 @@ def _run_models_calibrate_foundation(
 
     # Surface the reconstruct, fine-tune, calibration, and per-forecast progress live on stderr; the
     # calibrate/score phase is otherwise silent and CPU-bound, so this is the run's only feedback.
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(logging.Formatter("%(message)s"))
+    # Stop propagation so a root handler the foundation stack installs on import (timesfm / absl)
+    # cannot double every line, and avoid stacking our own handler if invoked twice in a process.
     progress = logging.getLogger("maneuver_detect")
-    progress.addHandler(handler)
+    if not any(getattr(h, "_md_calibrate", False) for h in progress.handlers):
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler._md_calibrate = True  # type: ignore[attr-defined]
+        progress.addHandler(handler)
     progress.setLevel(logging.INFO)
+    progress.propagate = False
 
     minor = ".".join(DATASET_VERSION.split(".")[:2])
     data_dir = Path(dataset_dir) if dataset_dir is not None else Path(f"dataset/v{minor}")
