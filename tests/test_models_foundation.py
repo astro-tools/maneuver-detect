@@ -186,3 +186,34 @@ def test_calibrate_and_score_runs_the_full_flow() -> None:
     assert set(bundle.class_thresholds) == {oc.value for oc in OrbitClass}
     assert "calibration" in bundle.metadata
     assert isinstance(bundle.metadata["test_report"]["per_class"], dict)
+
+
+def test_finetune_trains_on_the_train_split_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Leak guard: the fine-tune must see only the train-split objects, never the held-out val/test
+    # objects it is then scored against. Capture what reaches finetune_chronos.
+    import maneuver_detect.models.foundation as mf
+
+    captured: dict[str, set[int]] = {}
+
+    def fake_finetune(bundle, series_by_norad, **kwargs):  # type: ignore[no-untyped-def]
+        captured["ids"] = set(series_by_norad)
+        return bundle
+
+    monkeypatch.setattr(mf, "finetune_chronos", fake_finetune)
+
+    train = synthetic_series(norad_id=1, seed=0, n=900, burns=(Burn(100, "in_track_ms", 4.0),))
+    val = synthetic_series(norad_id=2, seed=1, n=900, burns=(Burn(400, "in_track_ms", 4.0),))
+    test = synthetic_series(norad_id=3, seed=2, n=900, burns=(Burn(700, "in_track_ms", 4.0),))
+    labels = [_label(train, 100, 4.0), _label(val, 400, 4.0), _label(test, 700, 4.0)]
+    split = _split(train=frozenset({1}), val=frozenset({2}), test=frozenset({3}))
+
+    calibrate_and_score(
+        "chronos",
+        {1: train, 2: val, 3: test},
+        labels,
+        split,
+        finetune=True,
+        forecaster=DriftContinuationForecaster(),
+    )
+
+    assert captured["ids"] == {1}  # only the train-split object — not the val/test objects
