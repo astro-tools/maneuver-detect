@@ -9,16 +9,32 @@ per-user per-UTC-day rate limit bounds submission volume (a courtesy guard now t
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from datetime import datetime, timezone
 
 import pytest
 
-from _leaderboard import build_fixture, honest_predictions, partial_predictions
+from _leaderboard import build_fixture, detection, honest_predictions, partial_predictions
+from maneuver_detect.benchmark import predictions_to_json
 from maneuver_detect.leaderboard import (
     InvalidSubmissionError,
     LeaderboardService,
     RateLimitError,
 )
+from maneuver_detect.schema import ManeuverType
+
+
+def _iter_values(node: object) -> Iterator[object]:
+    """Yield every nested value of a JSON-like result tree (dicts, lists, and scalars)."""
+    if isinstance(node, dict):
+        for value in node.values():
+            yield from _iter_values(value)
+    elif isinstance(node, list):
+        yield node
+        for item in node:
+            yield from _iter_values(item)
+    else:
+        yield node
 
 
 class _Clock:
@@ -39,6 +55,32 @@ def test_response_is_aggregate_only() -> None:
         "headline_recall_above_floor",
         "timing_only_floor_auc",
     }
+
+
+def test_response_carries_no_per_label_match_table() -> None:
+    # Aggregate-only is structural, not just a key whitelist: no list of per-label / per-match rows
+    # may appear anywhere in the response tree, so a reply hands an attacker no row of the key.
+    result = LeaderboardService(build_fixture()).submit("u", honest_predictions()).result
+    for value in _iter_values(result):
+        if isinstance(value, list):
+            assert not any(isinstance(item, dict) for item in value)  # no match/label table
+
+
+def test_below_floor_recovery_does_not_change_the_public_above_floor_recall() -> None:
+    # The public number is recall over the ABOVE-floor population (D7/D11). Recovering a below-floor
+    # (undetectable) label must not inflate it — the held-out below-floor label is excluded from the
+    # scored population, so hitting it leaves the aggregate response unchanged.
+    honest = LeaderboardService(build_fixture()).submit("u", honest_predictions()).result
+    with_below = predictions_to_json(
+        [
+            detection(90001, 5, ManeuverType.IN_TRACK),
+            detection(90001, 12, ManeuverType.CROSS_TRACK),
+            detection(90001, 22, ManeuverType.IN_TRACK),
+            detection(90001, 27, ManeuverType.IN_TRACK),  # the below-floor LEO label at day 27
+        ]
+    )
+    result = LeaderboardService(build_fixture()).submit("u", with_below).result
+    assert result["headline_recall_above_floor"] == honest["headline_recall_above_floor"]
 
 
 def test_response_leaks_no_held_out_label_epoch() -> None:
