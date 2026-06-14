@@ -17,7 +17,7 @@ import pytest
 import torch
 
 from _synthetic import Burn, object_series, synthetic_series
-from maneuver_detect.benchmark import ObjectExposure, ScoredLabel, TemporalSplit, score
+from maneuver_detect.benchmark import ObjectExposure, ScoredLabel, SplitName, TemporalSplit, score
 from maneuver_detect.benchmark.matching import match_detections
 from maneuver_detect.detectors.bilstm import BiLstmDetector
 from maneuver_detect.detectors.transformer import TransformerDetector
@@ -26,7 +26,11 @@ from maneuver_detect.labels.record import ManeuverLabel, OrbitClass
 from maneuver_detect.models.bilstm import BiLstmConfig
 from maneuver_detect.models.checkpoint import ModelBundle, build_network, load_bundle, save_bundle
 from maneuver_detect.models.datamodule import ObjectSeries
-from maneuver_detect.models.evaluate import tune_threshold_on_val
+from maneuver_detect.models.evaluate import (
+    score_on_temporal_split,
+    scoring_inputs_for_partition,
+    tune_threshold_on_val,
+)
 from maneuver_detect.models.train import ValBenchmark, train_bilstm, train_transformer
 from maneuver_detect.models.transformer import TransformerConfig
 from maneuver_detect.schema import COLUMNS, from_frame, validate_frame
@@ -188,6 +192,32 @@ def test_val_benchmark_selection_runs_and_records_recall() -> None:
     assert isinstance(bundle.metadata["best_val_recall"], float)
 
 
+def test_temporal_split_scoring_is_keyed_to_the_named_partition() -> None:
+    # The anti-leak invariant behind val-based selection and threshold tuning (D8: tuned on VAL,
+    # never TEST): scoring is keyed to the named partition, so an object placed in VAL is scored
+    # only when VAL is named. If the selection path scored TEST instead, here it would score the
+    # empty test partition and see nothing — so the two partitions give different scoring inputs.
+    val_frame = synthetic_series(norad_id=5, seed=5, n=900, burns=(Burn(450, "in_track_ms", 4.0),))
+    split = _temporal_split(val=frozenset({5}))  # the object is in VAL; TEST is empty
+    series = {5: val_frame}
+    labels = [_val_label(val_frame, 450, 4.0)]
+
+    val_labels, val_exposure = scoring_inputs_for_partition(
+        series, labels, split, partition=SplitName.VAL
+    )
+    test_labels, test_exposure = scoring_inputs_for_partition(
+        series, labels, split, partition=SplitName.TEST
+    )
+    assert val_labels and val_exposure  # the VAL object is scored on VAL
+    assert not test_labels and not test_exposure  # nothing is scored on the empty TEST partition
+
+    report = score_on_temporal_split(
+        BiLstmDetector(_train()), series, labels, split, partition=SplitName.VAL
+    )
+    assert OrbitClass.LEO in report.per_class
+    assert report.per_class[OrbitClass.LEO].n_labels_above_floor >= 1
+
+
 def test_early_stopping_and_val_benchmark_are_mutually_exclusive() -> None:
     spec = ValBenchmark(series_by_norad={}, labels=[], split=_temporal_split())
     with pytest.raises(ValueError, match="either early_stopping"):
@@ -228,6 +258,28 @@ def test_checkpoint_round_trips_and_rebuilds_identical_network(tmp_path: Path) -
     sample = torch.zeros(1, 32, _CONFIG.n_channels, dtype=torch.float32)
     with torch.no_grad():
         assert torch.equal(original(sample), restored(sample))
+
+
+def test_reloaded_bundle_reproduces_the_full_inference_pipeline(tmp_path: Path) -> None:
+    # The bundle exists to carry more than weights (D11.3): the frozen train-split normaliser, the
+    # window geometry, and the decision threshold, so a reload reproduces the exact inference
+    # pipeline. Pin every inference-bearing field and the end-to-end detections — a dropped or
+    # re-fit normaliser, or a lost threshold, would change the detections and be caught here.
+    bundle = _train()
+    path = tmp_path / "bilstm.pt"
+    save_bundle(bundle, path)
+    reloaded = load_bundle(path)
+
+    assert reloaded.window == bundle.window
+    assert reloaded.stride == bundle.stride
+    assert reloaded.threshold == pytest.approx(bundle.threshold)
+    assert reloaded.normaliser == bundle.normaliser
+    assert reloaded.network_config == bundle.network_config
+
+    frame = synthetic_series(norad_id=1, seed=11, burns=(Burn(45, "in_track_ms", 4.0),), n=90)
+    from_memory = BiLstmDetector(bundle).detect(frame)
+    from_disk = BiLstmDetector(reloaded).detect(frame)
+    pd.testing.assert_frame_equal(from_memory, from_disk)
 
 
 def test_training_is_deterministic_for_a_fixed_seed() -> None:

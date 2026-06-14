@@ -37,6 +37,11 @@ site/
 # driver writes bilstm-base.pt to the repo root).
 *.pt
 
+# Leaderboard scoring bundle — built offline from a credentialled reconstruction and supplied to the
+# Space as private deploy-time data. Its fixture carries real elset epochs (derived Space-Track data
+# the dataset does not redistribute, D2/D12), so it must never enter git.
+leaderboard-bundle/
+
 # IDE / editor
 .vscode/
 .idea/

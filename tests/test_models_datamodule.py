@@ -42,6 +42,24 @@ def test_per_token_target_skips_unalignable_epochs() -> None:
     assert target.sum() == 0.0
 
 
+def test_per_token_target_aligns_under_microsecond_epoch_resolution() -> None:
+    # build_channels is resolution-agnostic, so a non-canonical microsecond-resolution frame yields
+    # microsecond token epochs. per_token_target keys tokens by nanosecond, so those epochs still
+    # align — without that, every target would be silently dropped and the model would train on an
+    # all-negative label set.
+    burns = (Burn(30, "in_track_ms", 2.0), Burn(70, "cross_track_ms", 2.5))
+    coarse = synthetic_series(norad_id=1, seed=0, burns=burns)
+    coarse["epoch"] = coarse["epoch"].dt.as_unit("us")
+    epochs = [pd.Timestamp(coarse["epoch"].iloc[burn.gap_index]) for burn in burns]
+
+    channels = build_channels(coarse)
+    assert channels.epochs.dtype == np.dtype("datetime64[us]")  # the microsecond path is exercised
+
+    target = per_token_target(channels, epochs)
+    assert set(np.flatnonzero(target).tolist()) == {30, 70}
+    assert target.sum() == 2.0
+
+
 def test_setup_builds_window_tensors_and_fits_train_only_normaliser() -> None:
     train = [
         object_series(norad_id=1, seed=1, burns=(Burn(40, "in_track_ms", 3.0),)),

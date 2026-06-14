@@ -452,6 +452,64 @@ def test_temporal_empty_labels_rejected() -> None:
         make_temporal_split([])
 
 
+def test_temporal_collapsing_quantiles_rejected() -> None:
+    # When the label epochs are too clustered for the two quantiles to land on distinct epochs, the
+    # era cuts collapse (cut1 >= cut2); reject rather than emit a degenerate single-era split.
+    same = datetime(2024, 1, 1, tzinfo=_UTC)
+    labels = [_label(n, same, same + timedelta(hours=1)) for n in range(1, 6)]
+    with pytest.raises(ValueError, match="collapse"):
+        make_temporal_split(labels)
+
+
+def test_temporal_object_with_only_boundary_straddling_labels_is_dropped() -> None:
+    # An object whose every label window straddles a cut (start era != end era) belongs wholly to no
+    # era, so it is assigned to no partition rather than leaking across the boundary. The clean band
+    # objects are unaffected — the drop is specific to the straddler.
+    labels: list[ManeuverLabel] = []
+    norad = 1000
+    for band_start in (2000, 2010, 2020):
+        for k in range(6):
+            start = datetime(band_start + 1, 6, 1, tzinfo=_UTC) + timedelta(days=20 * k)
+            labels.append(_label(norad, start, start + timedelta(hours=1)))
+            norad += 1
+    straddler = 9999
+    labels.append(
+        _label(
+            straddler,
+            datetime(2002, 1, 1, tzinfo=_UTC),
+            datetime(2019, 1, 1, tzinfo=_UTC),  # spans era 0 into era 2 — straddles both cuts
+        )
+    )
+    split = make_temporal_split(labels, quantiles=(0.34, 0.67))
+    assert straddler not in (split.train | split.val | split.test)
+    assert split.train and split.val and split.test  # clean band objects still populate every era
+
+
+def test_committed_temporal_split_clears_the_guard_band_with_margin() -> None:
+    # D7 leak-freeness rests on the guard band clearing the series-derived match envelope (the
+    # labelled gap ±1 adjacent gap) at each era boundary. make_temporal_split sees only announced
+    # windows, not the envelope, so pin the structural margin on the committed split: every pair of
+    # cross-partition kept labels is separated in time by more than the full 2*guard band — the
+    # slack the envelope lives in. A grown label crowding a cut trips this before it could leak.
+    labels = _committed_labels()
+    split = make_temporal_split(labels)
+    grouped = split.assign(labels)
+    by_partition = {
+        name: [(label.window_start, label.window_end) for label in grouped[name]]
+        for name in SplitName
+    }
+
+    names = list(SplitName)
+    min_cross_gap = min(
+        max(s2 - e1, s1 - e2, timedelta(0))
+        for i, n1 in enumerate(names)
+        for n2 in names[i + 1 :]
+        for (s1, e1) in by_partition[n1]
+        for (s2, e2) in by_partition[n2]
+    )
+    assert min_cross_gap > 2 * split.guard
+
+
 def test_temporal_synthetic_multi_band_is_leak_free() -> None:
     # Three well-separated year-bands per class, cuts placed between bands, so every class reaches
     # every partition; robust to the exact cut placement.

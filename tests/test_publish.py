@@ -112,7 +112,8 @@ def test_publish_checkpoint_uploads_bundle_card_and_tag(
     api = _FakeApi()
     _install_fake(monkeypatch, api)
 
-    repo_id = publish_checkpoint("bilstm-base", bundle_path, token="x")
+    # The synthetic fixture is unscored, so allow it through — the scoring gate is its own test.
+    repo_id = publish_checkpoint("bilstm-base", bundle_path, token="x", allow_unscored=True)
 
     assert repo_id == "astro-tools/maneuver-detect-bilstm-base"
     assert api.created == [("astro-tools/maneuver-detect-bilstm-base", "model")]
@@ -140,10 +141,22 @@ def test_publish_first_time_tolerates_missing_tag(
     # On a first publish there is no tag to delete; move_tag must tolerate that and still create it.
     api = _FakeApi(raise_on_delete=True)
     _install_fake(monkeypatch, api)
-    publish_checkpoint("bilstm-base", bundle_path, token="x")
+    publish_checkpoint("bilstm-base", bundle_path, token="x", allow_unscored=True)
     assert api.tagged == [
         ("astro-tools/maneuver-detect-bilstm-base", "model", f"v{DATASET_VERSION}")
     ]
+
+
+def test_publish_checkpoint_refuses_an_unscored_bundle(
+    bundle_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A checkpoint with no recorded held-out test metrics would render a blank-metrics card; refuse
+    # it by default (D8 — the card must document measured performance) and upload nothing.
+    api = _FakeApi()
+    _install_fake(monkeypatch, api)
+    with pytest.raises(hub.HubError, match="no recorded held-out test metrics"):
+        publish_checkpoint("bilstm-base", bundle_path, token="x")
+    assert api.uploads == []  # nothing was uploaded before the refusal
 
 
 def test_build_model_card_renders_frontmatter_and_provenance(bundle_path: Path) -> None:
@@ -288,15 +301,20 @@ def test_cli_models_publish_dispatch(
 
     calls: dict[str, Any] = {}
 
-    def fake_publish(name: str, bundle: str, *, token: str | None, version: str) -> str:
-        calls.update(name=name, bundle=bundle, token=token, version=version)
+    def fake_publish(
+        name: str, bundle: str, *, token: str | None, version: str, allow_unscored: bool
+    ) -> str:
+        calls.update(
+            name=name, bundle=bundle, token=token, version=version, allow_unscored=allow_unscored
+        )
         return f"astro-tools/maneuver-detect-{name}"
 
     monkeypatch.setattr("maneuver_detect.models.publish.publish_checkpoint", fake_publish)
 
-    rc = cli.main(["models", "publish", "bilstm-base", str(tmp_path / "b.pt")])
+    rc = cli.main(["models", "publish", "bilstm-base", str(tmp_path / "b.pt"), "--allow-unscored"])
 
     assert rc == 0
     assert calls["name"] == "bilstm-base"
     assert calls["version"] == DATASET_VERSION
+    assert calls["allow_unscored"] is True
     assert "published bilstm-base" in capsys.readouterr().out

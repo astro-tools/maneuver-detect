@@ -21,6 +21,7 @@ from maneuver_detect.features.channels import (
     BASE_CHANNELS,
     CHANNEL_NAMES,
     CLIP_CAP_DAYS,
+    DETREND_HALFWIDTH,
     N_CHANNELS,
     N_ELEMENT_CHANNELS,
 )
@@ -108,6 +109,67 @@ def test_cross_track_step_surfaces_on_inclination_channels() -> None:
     rc = build_channels(_frame(n=140, step_at=70, step_inc_deg=0.02))
     delta_sin_i = rc.matrix[:, CHANNEL_NAMES.index("delta_sin_i")]
     assert int(np.argmax(np.abs(delta_sin_i))) == 70
+
+
+def test_two_sided_detrend_smears_the_step_into_exactly_halfwidth_neighbours() -> None:
+    # The centred (two-sided) local-linear detrend is symmetric by design (D11.3), so a real step
+    # bleeds a small, opposite-signed share onto the DETREND_HALFWIDTH tokens either side. Pin both
+    # the magnitude and the radius so the intra-object smear cannot silently grow: the bracketing
+    # gap keeps 2h/(2h+1) of the step and each neighbour within the window carries -1/(2h+1) of it.
+    step, at, n = 0.5, 80, 160
+    rc = build_channels(_frame(n=n, step_at=at, step_a_km=step))
+    delta_a = rc.matrix[:, CHANNEL_NAMES.index("delta_a")]
+    window = 2 * DETREND_HALFWIDTH + 1
+
+    assert delta_a[at] == pytest.approx(step * (2 * DETREND_HALFWIDTH) / window, abs=1e-6)
+    smear = -step / window
+    for offset in range(1, DETREND_HALFWIDTH + 1):
+        assert delta_a[at - offset] == pytest.approx(smear, abs=1e-6)
+        assert delta_a[at + offset] == pytest.approx(smear, abs=1e-6)
+    # Just outside the ±halfwidth window the residual is clean again — the radius is exactly H.
+    assert delta_a[at - DETREND_HALFWIDTH - 1] == pytest.approx(0.0, abs=1e-9)
+    assert delta_a[at + DETREND_HALFWIDTH + 1] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_eccentricity_vector_tracks_arg_perigee_across_all_quadrants() -> None:
+    # ω is carried as the eccentricity vector (h, k) = (e·cos ω, e·sin ω) so the channel never wraps
+    # (D11.3). Sweep ω through every quadrant and past 360° and assert h, k match the definition and
+    # stay continuous across the wrap — the failure a raw-angle ω channel would show.
+    n = 120
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    epochs = [start + timedelta(days=i) for i in range(n)]
+    ecc = 0.02
+    argp = (10.0 + 7.0 * np.arange(n)) % 360.0  # ramps through all four quadrants and wraps
+    frame = pd.DataFrame(
+        {
+            "epoch": pd.Series(epochs, dtype="datetime64[ns, UTC]"),
+            "norad_id": np.full(n, 25544, dtype=int),
+            "semi_major_axis": np.full(n, 6778.0),
+            "eccentricity": np.full(n, ecc),
+            "inclination": np.full(n, 66.0),
+            "raan": np.full(n, 20.0),
+            "arg_perigee": argp,
+        }
+    )
+    rc = build_channels(frame)
+    argp_rad = argp * _DEG
+    assert np.allclose(rc.matrix[:, CHANNEL_NAMES.index("level_h")], ecc * np.cos(argp_rad))
+    assert np.allclose(rc.matrix[:, CHANNEL_NAMES.index("level_k")], ecc * np.sin(argp_rad))
+    # Continuous across 360°→0°: consecutive level steps stay bounded by e·Δω, never a full jump.
+    assert np.max(np.abs(np.diff(rc.matrix[:, CHANNEL_NAMES.index("level_h")]))) < 0.005
+    assert np.max(np.abs(np.diff(rc.matrix[:, CHANNEL_NAMES.index("level_k")]))) < 0.005
+
+
+def test_duplicate_epoch_rows_encode_without_error() -> None:
+    # A real catalogue can emit two elsets at the same epoch (a zero-Δt gap); the encoding must stay
+    # finite and treat it as a zero-duration interval rather than crashing the local-linear fit.
+    frame = _frame(n=40)
+    frame.loc[20, "epoch"] = frame.loc[19, "epoch"]
+    rc = build_channels(frame)
+    assert rc.matrix.shape == (40, N_CHANNELS)
+    assert np.isfinite(rc.matrix).all()
+    dt_clip = rc.matrix[:, CHANNEL_NAMES.index("dt_clip")]
+    assert np.count_nonzero(dt_clip[1:] == 0.0) == 1  # exactly one interior zero-Δt gap
 
 
 def test_level_channels_are_the_raw_elements() -> None:

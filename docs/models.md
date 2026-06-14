@@ -16,6 +16,13 @@ CPU-only, and cached on disk.
 A learned model localises maneuvers in the element series; the same vis-viva / Gauss physics
 inversion the classical detector uses then recovers the Δv magnitude and type for each detection.
 
+On the frozen v0.2 benchmark both learned baselines beat the classical reference on the headline
+metric — above-floor recall at the fixed false-alarm rate — driven by the LEO and GEO classes, while
+on the small MEO population the three are comparable. The exact per-class recall and precision each
+baseline reaches are recorded on its model card, generated from the checkpoint's own held-out
+evaluation, which is the authoritative source for the numbers; the classical detector is the bar the
+learned models are measured against.
+
 ## Run a learned model
 
 Select it by name — the checkpoint is fetched from the Hub the first time the detector runs, then
@@ -92,8 +99,8 @@ HF_TOKEN=... maneuver-detect models publish transformer-base ./transformer-base.
 ```
 
 Each model card is generated from the bundle's own provenance — the training-data version, the
-measured per-class test recall/precision, the architecture, and the training cost — so the
-documented numbers cannot drift from the weights they describe. The per-class metrics are recorded
+measured per-class test recall/precision, and the architecture — so the documented numbers cannot
+drift from the weights they describe. The per-class metrics are recorded
 into the checkpoint when the training/eval driver scores the held-out test split; an existing
 checkpoint can be back-filled without retraining via `examples/score_checkpoint.py` (credentialed,
 CPU). The dataset and the checkpoints carry the same version tag, kept in lockstep with the library

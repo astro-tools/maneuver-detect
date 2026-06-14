@@ -50,6 +50,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             bundle=args.bundle,
             version=args.version,
             token=args.token,
+            allow_unscored=args.allow_unscored,
         )
     return _run_detect(
         target=args.target,
@@ -216,6 +217,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--token",
         default=None,
         help="Hugging Face write token (default: $HF_TOKEN or a prior login)",
+    )
+    models_publish_parser.add_argument(
+        "--allow-unscored",
+        action="store_true",
+        help="publish even if the checkpoint has no recorded held-out test metrics (blank card)",
     )
     return parser
 
@@ -398,7 +404,14 @@ def _run_dataset_publish(
     return 0
 
 
-def _run_models_publish(name: str, bundle: str, version: str | None, token: str | None) -> int:
+def _run_models_publish(
+    name: str,
+    bundle: str,
+    version: str | None,
+    token: str | None,
+    *,
+    allow_unscored: bool = False,
+) -> int:
     """Publish a trained checkpoint bundle + its generated model card to the Hugging Face Hub."""
     import sys
 
@@ -408,7 +421,9 @@ def _run_models_publish(name: str, bundle: str, version: str | None, token: str 
 
     resolved_version = version if version is not None else DATASET_VERSION
     try:
-        repo_id = publish_checkpoint(name, bundle, token=token, version=resolved_version)
+        repo_id = publish_checkpoint(
+            name, bundle, token=token, version=resolved_version, allow_unscored=allow_unscored
+        )
     except (ManeuverDetectError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

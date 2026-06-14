@@ -10,6 +10,7 @@ match, a type confusion, and a class with no labels.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -297,6 +298,69 @@ def test_read_predictions_rejects_a_record_missing_a_canonical_field() -> None:
     bad = '[{"epoch": "2024-01-01T00:00:00+00:00", "confidence": 0.9}]'
     with pytest.raises(ValueError, match="missing canonical fields"):
         read_predictions(bad)
+
+
+def test_read_predictions_enforces_a_fixed_schema_both_ways() -> None:
+    # The schema is fixed in both directions (the D12 fixed-schema integrity surface): a record
+    # carrying any field beyond the canonical columns is rejected, so a submission cannot smuggle a
+    # query or any other payload past the reader even when every required field is present.
+    smuggled = json.loads(predictions_to_json(_scenario_detections()[:1]))
+    smuggled[0]["give_me"] = "the labels"
+    with pytest.raises(ValueError, match="unknown fields"):
+        read_predictions(json.dumps(smuggled))
+
+    # A non-array payload, or a record that is not a JSON object, is rejected the same way rather
+    # than iterated over and mis-parsed.
+    with pytest.raises(ValueError, match="must be a JSON array"):
+        read_predictions('{"give_me": "the labels"}')
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        read_predictions('["SELECT * FROM labels"]')
+
+
+def test_operating_point_walk_drops_a_true_positive_behind_an_unaffordable_false_alarm() -> None:
+    # The operating point is the highest-confidence point within the false-alarm budget: the walk
+    # stops at the first false alarm that would exceed the budget, so a true positive ranked *below*
+    # it is not counted even though it consumes no budget. Documented FROC behaviour — pinned so the
+    # reported numbers cannot silently change under a future refactor of the metric.
+    label = ScoredLabel(
+        _interval(
+            11111,
+            "2024-01-03T12:00:00",
+            "2024-01-03",
+            "2024-01-04",
+            "2024-01-02",
+            "2024-01-05",
+            orbit_class=OrbitClass.LEO,
+            maneuver_type=ManeuverType.IN_TRACK,
+            delta_v=0.5,
+        )
+    )
+
+    def man(epoch: str, confidence: float, before: str, after: str) -> Maneuver:
+        return Maneuver(
+            epoch=_ts(epoch),
+            confidence=confidence,
+            type=ManeuverType.IN_TRACK,
+            delta_v_estimate=None,
+            norad_id=11111,
+            elset_epoch_before=_ts(before),
+            elset_epoch_after=_ts(after),
+        )
+
+    detections = [
+        man("2024-02-15T12:00:00", 0.9, "2024-02-15", "2024-02-16"),  # high-confidence false alarm
+        man("2024-01-03T12:00:00", 0.4, "2024-01-03", "2024-01-04"),  # the TP, ranked below the FP
+    ]
+    exposure = [ObjectExposure(11111, OrbitClass.LEO, 0.5)]  # 0.5 sat-years
+
+    # At 1 FA/sat-year the budget is 0.5 false alarms — the lone FP is unaffordable, so the walk
+    # stops before the TP behind it and recall is 0.
+    suppressed = score(detections, [label], exposure, operating_point=1.0)
+    assert suppressed.per_class[OrbitClass.LEO].recall == 0.0
+    # Widen the budget so the FP is affordable and the same TP is now counted — confirming the TP is
+    # genuinely matchable and it was the budget walk, not a miss, that suppressed it.
+    afforded = score(detections, [label], exposure, operating_point=4.0)
+    assert afforded.per_class[OrbitClass.LEO].recall == pytest.approx(1.0)
 
 
 # --- per-class confidence intervals -------------------------------------------------------------

@@ -56,6 +56,28 @@ def test_encoding_is_byte_deterministic_end_to_end() -> None:
     assert one.tobytes() == two.tobytes()
 
 
+def test_normaliser_fits_on_train_objects_only() -> None:
+    # The other half of the leak-free contract (D11.3): the standardiser's statistics come from the
+    # train split only, so a held-out object is never scaled by its own distribution. The feature
+    # layer leaves this to the caller; pin it here so a regression that pooled the held-out object
+    # into the fit would be caught.
+    train = build_channels(_frame())
+    held_out_frame = _frame()
+    held_out_frame["semi_major_axis"] = held_out_frame["semi_major_axis"] + 80.0  # a different LEO
+    held_out = build_channels(held_out_frame)
+    cls = train.orbit_class
+    assert held_out.orbit_class is cls  # same class, distinct statistics
+
+    train_only = ClassNormaliser.fit([train])
+    pooled = ClassNormaliser.fit([train, held_out])
+
+    # Adding the held-out object to the fit moves the statistics, so the train-only fit the harness
+    # uses cannot have been informed by the held-out object's scale.
+    assert not np.allclose(train_only.medians[cls], pooled.medians[cls])
+    # The train-only statistics are exactly the train block's own medians — nothing else entered.
+    assert np.allclose(train_only.medians[cls], np.median(train.element_block(), axis=0))
+
+
 def test_features_do_not_depend_on_the_target() -> None:
     frame = _frame(step_at=80)
     matrix = ClassNormaliser.fit([build_channels(frame)]).transform(build_channels(frame))
