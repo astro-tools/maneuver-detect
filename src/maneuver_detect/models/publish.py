@@ -3,9 +3,11 @@
 A checkpoint is GPU-trained offline (D12), so it is published from the training environment with
 this module — ``maneuver-detect models publish <name> <bundle.pt>`` — not by CI, which never has the
 weights. The **model card is generated from the bundle's own provenance**
-(:attr:`~maneuver_detect.models.checkpoint.ModelBundle.metadata`), so the documented training data,
-metrics, and cost can never drift from the weights they describe (D8). The Hub repo id, the revision
-tag, and the auth path come from :mod:`maneuver_detect.hub`.
+(:attr:`~maneuver_detect.models.checkpoint.ModelBundle.metadata`), so the documented training data
+and metrics can never drift from the weights they describe (D8). Publishing **refuses a checkpoint
+with no recorded held-out test metrics** (which would render a blank-metrics card) unless it is
+explicitly allowed, so the published card always documents measured performance. The Hub repo id,
+the revision tag, and the auth path come from :mod:`maneuver_detect.hub`.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ def publish_checkpoint(
     *,
     token: str | None = None,
     version: str = DATASET_VERSION,
+    allow_unscored: bool = False,
 ) -> str:
     """Upload the checkpoint bundle ``bundle_path`` and its generated model card to the Hub.
 
@@ -35,8 +38,13 @@ def publish_checkpoint(
     selects the target Hub model repo (:data:`maneuver_detect.hub.MODELS`). The bundle is loaded
     first (validating it and supplying the card's provenance), then the ``.pt`` and a ``README.md``
     model card are uploaded and the lockstep ``v{version}`` tag is moved onto them. ``token`` is the
-    HF write token (falls back to ``$HF_TOKEN`` / a prior login). Returns the model repo id. Raises
-    :class:`~maneuver_detect.hub.HubError` for an unknown ``name``.
+    HF write token (falls back to ``$HF_TOKEN`` / a prior login). Returns the model repo id.
+
+    Refuses a checkpoint with no recorded held-out test metrics — whose card would document no
+    measured performance — unless ``allow_unscored`` is set; score it first (the credentialed
+    ``score_checkpoint`` driver back-fills the metrics into the bundle) so the published card
+    carries real numbers. Raises :class:`~maneuver_detect.hub.HubError` for an unknown ``name`` or
+    an unscored bundle published without ``allow_unscored``.
     """
     from maneuver_detect.models.checkpoint import load_bundle
 
@@ -45,6 +53,12 @@ def publish_checkpoint(
     model = hub.MODELS[name]
 
     bundle = load_bundle(bundle_path)
+    if not allow_unscored and not _has_test_metrics(bundle):
+        raise hub.HubError(
+            f"checkpoint {bundle_path} has no recorded held-out test metrics, so its model card "
+            "would document no measured performance; score it first (score_checkpoint), or pass "
+            "allow_unscored=True (--allow-unscored) to publish it anyway"
+        )
     card = build_model_card(bundle, name, version=version)
 
     api = hub.hf_api(token)
@@ -65,6 +79,16 @@ def publish_checkpoint(
     )
     hub.move_tag(api, model.repo_id, repo_type="model", version=version)
     return model.repo_id
+
+
+def _has_test_metrics(bundle: ModelBundle) -> bool:
+    """Whether the bundle carries a held-out test report with at least one per-class metric."""
+    report = bundle.metadata.get("test_report")
+    return (
+        isinstance(report, dict)
+        and isinstance(report.get("per_class"), dict)
+        and bool(report["per_class"])
+    )
 
 
 def _format_value(value: Any) -> str:
