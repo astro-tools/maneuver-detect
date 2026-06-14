@@ -76,7 +76,12 @@ def per_token_target(
     target = np.zeros(channels.n_tokens, dtype=np.float32)
     if not maneuver_epochs:
         return target
-    token_index = {int(value.view("int64")): i for i, value in enumerate(channels.epochs)}
+    # Key tokens by their UTC-nanosecond value. ``channels.epochs`` carries whatever datetime64
+    # resolution the source frame had; normalise to ns so the keys match ``_naive_utc_ns`` (always
+    # ns). Without this, a non-canonical us-resolution frame would mis-key every token and silently
+    # drop all targets, training the model on an all-negative label set.
+    epochs_ns = channels.epochs.astype("datetime64[ns]")
+    token_index = {int(value.view("int64")): i for i, value in enumerate(epochs_ns)}
     missed = 0
     for epoch in maneuver_epochs:
         index = token_index.get(_naive_utc_ns(epoch))
