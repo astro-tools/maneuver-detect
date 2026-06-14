@@ -6,16 +6,16 @@ foundation model replaces **one** component of the classical detector — the ha
 quiet-dynamics
 prior — with a learned conditional forecast; everything downstream is reused verbatim:
 
-* **Forecast** each object's **secular-detrended** element residual (the two well-observed trigger
-  channels the classical detector fires on — the semi-major axis ``a`` for in-track and the
-  inclination for cross-track — with the J2 / drag drift already removed) one-step-ahead and
-  rolling, getting a predicted next value **and a predictive scale** per token. Forecasting the
-  residual rather than the raw level matters: a pretrained model cannot track the strong LEO drag
-  decay or GEO drift zero-shot, so the raw level buries the maneuver under drift-tracking error.
-* **Residual → score.** The standardized residual ``(realised - forecast) / predictive-scale``
-spikes
-  where a maneuver steps an element the quiet-trained forecaster cannot anticipate; the per-token
-  score is the largest standardized residual across the trigger channels.
+* **Forecast** each object's mean-element series (the two well-observed trigger channels the
+  classical detector fires on: the semi-major axis ``a`` for in-track and the inclination for
+  cross-track) one-step-ahead and rolling, getting a predicted next value per token.
+* **Residual → score.** Standardize the forecast residual ``realised - forecast`` by a **robust
+  per-object scale** (the centred MAD of the residuals), not the model's per-gap predictive interval
+  — V6 measured the interval collapsing toward zero on confident gaps, which blows an ordinary gap
+  up into a spurious spike, whereas the per-object MAD is stable (the calibrated interval is left to
+  the uncertainty-calibration deliverable). The per-token score is the largest standardized residual
+  across the trigger channels; a maneuver steps an element the quiet-trained forecaster cannot
+  anticipate, so its residual spikes while quiet gaps stay near zero.
 * **Per-class threshold + NMS.** Threshold the score **per orbit class** — the D4 detectability
 floor
   expressed in standardized-residual units — and collapse each contiguous above-threshold run to its
@@ -57,7 +57,7 @@ import pandas as pd
 from maneuver_detect.detectors.base import Detector
 from maneuver_detect.detectors.classical import ClassicalDetector
 from maneuver_detect.detectors.learned import _AlignedElements, _detected_gaps
-from maneuver_detect.features.channels import BASE_CHANNELS, build_channels
+from maneuver_detect.features.channels import build_channels
 from maneuver_detect.labels.record import OrbitClass
 from maneuver_detect.schema import COLUMNS, Maneuver, empty_frame, to_frame
 
@@ -87,20 +87,11 @@ _logger = logging.getLogger(__name__)
 CHRONOS_CHECKPOINT_ENV = "MANEUVER_DETECT_CHRONOS_CHECKPOINT"
 TIMESFM_CHECKPOINT_ENV = "MANEUVER_DETECT_TIMESFM_CHECKPOINT"
 
-#: The detrended-residual channels the detector forecasts, by their :data:`BASE_CHANNELS` name — the
-#: semi-major axis (in-track) and the inclination ``sin``/``cos`` components (cross-track), the two
-#: well-observed channels the classical detector triggers on. The detector forecasts the
-#: **secular-detrended residual** of each (the ``resid_`` block :func:`build_channels` computes, the
-#: J2 / drag drift already removed), not the raw level: a pretrained forecaster cannot track the
-#: strong LEO drag decay or GEO drift zero-shot, so the raw level buries the maneuver under
-#: drift-tracking error — forecasting the near-stationary residual makes the step stand out.
-_TRIGGER_CHANNELS = ("a", "sin_i", "cos_i")
-
-#: A tiny floor on the per-object predictive scale, guarding the standardized residual against a
-#: degenerate near-constant quiet series (which would drive the scale to zero and make every gap a
-#: spurious infinite-z spike). Far below any real channel's residual MAD, so it never bites a
-#: normally-noisy series; the real scale comes from the forecaster's predictive interval.
-_SCALE_FLOOR = 1e-12
+#: A floor on the per-object robust scale, in each channel's own unit (km for ``a``, rad for the
+#: inclination), guarding the standardized residual against a degenerate near-constant quiet series
+#: (whose MAD would be zero, making every gap a spurious infinite-z spike). Far below any real
+#: channel's residual MAD, so it never bites a normally-noisy series.
+_SCALE_FLOOR = {"a": 1e-6, "inc": 1e-9}
 
 #: The default residual-z detection threshold a detector uses when neither a per-class calibration
 #: nor an explicit override is supplied — a sane operating point in standardized-residual units (a
@@ -322,7 +313,7 @@ class _ForecastResidualDetector(Detector):
         if channels.n_tokens < 2:
             return []
         elements = _AlignedElements.from_channels(channels)
-        score = self._residual_score(channels)
+        score = self._residual_score(channels, elements)
         threshold = self._threshold_for(channels.orbit_class)
         gaps = _detected_gaps(score, threshold)
         if not gaps:
@@ -348,28 +339,34 @@ class _ForecastResidualDetector(Detector):
             )
         return maneuvers
 
-    def _residual_score(self, channels: RawChannels) -> FloatArray:
-        """Per-token score: the largest standardized forecast residual across the trigger channels.
+    def _residual_score(self, channels: RawChannels, elements: _AlignedElements) -> FloatArray:
+        """Per-token score: the largest robustly-standardized forecast residual across the channels.
 
-        Forecasts the **secular-detrended residual** of each :data:`_TRIGGER_CHANNELS` channel (the
-        ``resid_`` block :func:`build_channels` computes, the J2 / drag drift already removed),
-        standardizes it by its forecast (``|realised - forecast| / predictive-scale``), and reduces
-        to one score per token (the max across channels). Forecasting the near-stationary residual,
-        rather than the raw level a zero-shot model cannot detrend, is what lets the maneuver step
-        clear the noise on the drift-heavy LEO and GEO classes. Token ``0`` scores ``0`` (no gap
-        precedes it); token ``i`` scores the inter-elset gap ``[i-1, i]``, the convention
-        :func:`_detected_gaps` thresholds.
+        Forecasts the semi-major axis (in-track) and the inclination (cross-track) — the two
+        well-observed channels the classical detector triggers on — and standardizes the forecast
+        residual by a **robust per-object scale** (the centred MAD of the residuals), *not* the
+        model's per-gap predictive interval. V6 measured the reason: the interval collapses toward
+        zero on confident gaps, which blows an ordinary gap's residual up into a spurious spike and
+        buries the maneuver, whereas the per-object MAD is stable — a handful of maneuver residuals
+        are outliers it shrugs off (the V6 stand-in's standardisation; the calibrated predictive
+        interval is left to the uncertainty-calibration deliverable). Reduces to one score per token
+        (the max across channels). Token ``0`` scores ``0`` (no gap precedes it); token ``i`` scores
+        the inter-elset gap ``[i-1, i]``, the convention :func:`_detected_gaps` thresholds.
         """
-        matrix = channels.matrix
-        n_base = len(BASE_CHANNELS)
-        residual_index = {name: n_base + offset for offset, name in enumerate(BASE_CHANNELS)}
-        score = np.zeros(channels.n_tokens, dtype=np.float64)
-        for name in _TRIGGER_CHANNELS:
-            series = matrix[:, residual_index[name]].astype(np.float64)
+        n = channels.n_tokens
+        score = np.zeros(n, dtype=np.float64)
+        for series, floor in (
+            (elements.a_km, _SCALE_FLOOR["a"]),
+            (elements.inc_rad, _SCALE_FLOOR["inc"]),
+        ):
             forecast = self._forecaster.forecast(series)  # type: ignore[union-attr]
-            scale = np.maximum(np.abs(forecast.scale), _SCALE_FLOOR)
-            z = np.abs(series - forecast.mean) / scale
-            z[0] = 0.0
+            residual = series - forecast.mean  # residual[0] is undefined (no forecast at token 0)
+            body = residual[1:]
+            center = float(np.median(body))
+            mad = 1.4826 * float(np.median(np.abs(body - center)))
+            scale = max(mad, floor)
+            z = np.zeros(n, dtype=np.float64)
+            z[1:] = np.abs(body - center) / scale
             score = np.maximum(score, np.nan_to_num(z, nan=0.0, posinf=0.0, neginf=0.0))
         return score
 
