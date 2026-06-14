@@ -309,8 +309,23 @@ def calibrate_and_score(
         backend, revision=revision, checkpoint_id=checkpoint_id, context_length=context_length
     )
     if finetune:
-        _logger.info("fine-tuning the %s forecaster (%d steps)...", backend, finetune_steps)
-        bundle = finetune_chronos(bundle, series_by_norad, max_steps=finetune_steps)
+        # Fine-tune on the TRAIN-split objects only — never the held-out val/test objects it is
+        # then scored against (the leak-free contract the v0.2 baselines honour: object
+        # disjointness is the guard, era-scoping is applied at scoring, not training).
+        from maneuver_detect.benchmark import SplitName
+
+        train_series = {
+            norad_id: series_by_norad[norad_id]
+            for norad_id in split.members(SplitName.TRAIN)
+            if norad_id in series_by_norad and not series_by_norad[norad_id].empty
+        }
+        _logger.info(
+            "fine-tuning the %s forecaster on %d train-split objects (%d steps)...",
+            backend,
+            len(train_series),
+            finetune_steps,
+        )
+        bundle = finetune_chronos(bundle, train_series, max_steps=finetune_steps)
     resolved = forecaster if forecaster is not None else build_forecaster_for(bundle)
     _logger.info(
         "calibrating the residual-z threshold on the val split (%d candidates)...",
