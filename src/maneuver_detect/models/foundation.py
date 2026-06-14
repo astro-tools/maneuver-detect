@@ -84,8 +84,9 @@ FOUNDATION_DEFAULTS: dict[str, FoundationDefault] = {
 
 #: The residual-z detection thresholds :func:`calibrate_thresholds` sweeps — standardized-residual
 #: units (how many robust scales out a gap must be to fire), not the ``[0, 1]`` probabilities the
-#: learned baselines tune. Spans the V3/D4 per-class detectability band.
-FOUNDATION_THRESHOLD_SWEEP: tuple[float, ...] = (2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0)
+#: learned baselines tune. Spans the V3/D4 per-class detectability band, low enough (down to 1.0)
+#: that the tuner is never floored by the sweep — the cached forecast makes extra candidates free.
+FOUNDATION_THRESHOLD_SWEEP: tuple[float, ...] = (1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0)
 
 # Everything the detector needs to reproduce a foundation variant; a bundle missing any is
 # malformed.
