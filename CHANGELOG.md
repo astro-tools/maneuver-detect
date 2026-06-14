@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-13
+
+Learned baselines and the public benchmark. v0.2 adds two trained detectors, distributes the
+dataset and checkpoints through the Hugging Face Hub, stands up a public leaderboard on a frozen
+held-out split, and grows the dataset to GEO and new label sources with class-stratified and
+temporal split variants. The classical detector remains the in-package default; the learned models
+are the first entries every new method is measured against.
+
+### Added
+
+- **Learned baselines** — a BiLSTM sequence detector and a ~10M-parameter transformer detector,
+  both trained on the real-data benchmark splits and selectable via
+  `detect(history, model="bilstm-base" | "transformer-base")`. A Lightning training harness with
+  early stopping, best-checkpoint restore, and checkpoint selection on val-split benchmark recall
+  (not BCE val-loss).
+- **Irregular-sampling feature layer** — mean-element feature engineering with an explicit
+  irregular-sampling encoding (D11), so the sequence models consume the non-uniform TLE cadence
+  directly.
+- **Hugging Face Hub distribution** — `detect(model=...)` resolves checkpoints from the Hub, pinned
+  in lockstep to `v{DATASET_VERSION}`; dataset and per-model publishers
+  (`maneuver-detect dataset publish`, `maneuver-detect models publish`) generate dataset and model
+  cards, including per-class test metrics read from the checkpoint.
+- **Public leaderboard** — a Hugging Face Space serving the held-out test split with a submission
+  path and an integrity + single-GPU compute-budget protocol (D12), so external methods are scored
+  on the same frozen partition.
+- **Dataset-growth pass** — GEO objects (self-labelled longitude-shift) and Galileo MEO, with new
+  licence-clean label sources (D13); the v0.2 partition re-frozen.
+- **Split variants** — a class-stratified, leak-free, byte-stable packing mode and a
+  temporal-holdout split (novel-satellite × novel-era) with a leak-free meta-test, plus per-class
+  confidence intervals on recall and precision.
+
+### Changed
+
+- The forward-wired `torch` / `lightning` / `huggingface_hub` / `datasets` base dependencies are now
+  exercised by the learned baselines and Hub loading; all remain permissively licensed and the
+  `[foundation]` extra stays optional.
+
+Ships the frozen v0.2 design decisions D11–D13 alongside the v0.1 set.
+
 ## [0.1.0] - 2026-06-11
 
 The first release of maneuver-detect: a curated, reconstructable, labelled dataset built from public
@@ -49,5 +88,6 @@ pieces are the dataset and the benchmark; the detector is the baseline every lea
   `[foundation]` extra. Ships with a published documentation site and the frozen v0.1 design
   decisions (D1–D10).
 
-[Unreleased]: https://github.com/astro-tools/maneuver-detect/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/astro-tools/maneuver-detect/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/astro-tools/maneuver-detect/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/astro-tools/maneuver-detect/releases/tag/v0.1.0
