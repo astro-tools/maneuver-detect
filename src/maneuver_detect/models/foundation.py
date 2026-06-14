@@ -22,6 +22,7 @@ specializes the Chronos quiet-dynamics prior to the element-series domain. The h
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -57,6 +58,8 @@ __all__ = [
     "score_bundle",
     "zero_shot_bundle",
 ]
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -222,11 +225,15 @@ def calibrate_thresholds(
     deliverable); the recall and the full sweep ride along on the metadata for provenance.
     """
     from maneuver_detect.benchmark import SplitName
+    from maneuver_detect.detectors.foundation import _CachingForecaster
 
     resolved = forecaster if forecaster is not None else build_forecaster_for(bundle)
+    # The sweep re-runs detection per candidate threshold, but the forecast is
+    # threshold-independent, so cache it once across all candidates (the forecast is the slow part).
+    cached = _CachingForecaster(resolved)
 
     def make_detector(threshold: float) -> _ForecastResidualDetector:
-        return _bundle_detector(bundle, resolved, threshold=threshold)
+        return _bundle_detector(bundle, cached, threshold=threshold)
 
     tuning = tune_threshold_on_val(
         make_detector,
@@ -305,10 +312,20 @@ def calibrate_and_score(
         backend, revision=revision, checkpoint_id=checkpoint_id, context_length=context_length
     )
     if finetune:
+        _logger.info("fine-tuning the %s forecaster (%d steps)...", backend, finetune_steps)
         bundle = finetune_chronos(bundle, series_by_norad, max_steps=finetune_steps)
     resolved = forecaster if forecaster is not None else build_forecaster_for(bundle)
-    bundle, _ = calibrate_thresholds(
+    _logger.info(
+        "calibrating the residual-z threshold on the val split (%d candidates)...",
+        len(tuple(candidates)),
+    )
+    bundle, tuning = calibrate_thresholds(
         bundle, series_by_norad, labels, split, forecaster=resolved, candidates=candidates
+    )
+    _logger.info(
+        "calibrated threshold %.2f (val recall %.3f); scoring on the test split...",
+        tuning.threshold,
+        tuning.recall,
     )
     return score_bundle(bundle, series_by_norad, labels, split, forecaster=resolved)
 

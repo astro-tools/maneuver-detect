@@ -499,6 +499,7 @@ def _run_models_calibrate_foundation(
     rather than failing or hanging — so it is safe to invoke from the example smoke test.
     """
     import json
+    import logging
     import os
     import sys
     from collections import defaultdict
@@ -522,6 +523,14 @@ def _run_models_calibrate_foundation(
     from maneuver_detect.labels.record import ManeuverLabel, OrbitClass
     from maneuver_detect.models.foundation import calibrate_and_score, save_foundation_bundle
     from maneuver_detect.schema import ManeuverType
+
+    # Surface the reconstruct, fine-tune, calibration, and per-forecast progress live on stderr; the
+    # calibrate/score phase is otherwise silent and CPU-bound, so this is the run's only feedback.
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    progress = logging.getLogger("maneuver_detect")
+    progress.addHandler(handler)
+    progress.setLevel(logging.INFO)
 
     minor = ".".join(DATASET_VERSION.split(".")[:2])
     data_dir = Path(dataset_dir) if dataset_dir is not None else Path(f"dataset/v{minor}")

@@ -215,6 +215,26 @@ def test_hub_load_success_with_stubbed_forecaster(
     assert detector.is_loaded
 
 
+def test_caching_forecaster_forecasts_each_series_once() -> None:
+    # The val threshold sweep re-detects per candidate; the cache must forecast each distinct series
+    # exactly once and serve the rest from the cache (the forecast is threshold-independent).
+    from maneuver_detect.detectors.foundation import _CachingForecaster
+
+    seen: list[int] = []
+
+    class _Counting:
+        def forecast(self, series: np.ndarray) -> Forecast:
+            seen.append(series.shape[0])
+            return DriftContinuationForecaster().forecast(series)
+
+    cache = _CachingForecaster(_Counting())
+    a = np.arange(10, dtype=np.float64)
+    b = np.arange(20, dtype=np.float64)
+    for series in (a, a.copy(), b, a):  # same content (incl. a fresh copy) hits the cache
+        cache.forecast(series)
+    assert seen == [10, 20]  # 'a' forecast once, 'b' once — the repeats were cache hits
+
+
 def test_drift_continuation_forecaster_shapes_and_quiet_residual() -> None:
     # The stand-in's contract: a forecast value + scale per token, token 0 unused, a quiet series
     # standardised to small residuals.

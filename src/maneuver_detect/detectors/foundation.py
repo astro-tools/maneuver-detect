@@ -42,6 +42,7 @@ the registry uses — the Hub-published bundle, fetched on first use.
 
 from __future__ import annotations
 
+import logging
 import math
 import os
 from pathlib import Path
@@ -74,6 +75,8 @@ __all__ = [
 ]
 
 FloatArray = npt.NDArray[np.float64]
+
+_logger = logging.getLogger(__name__)
 
 #: Environment variables naming a local foundation-bundle path the no-argument detector loads, so
 #: the
@@ -164,6 +167,35 @@ class DriftContinuationForecaster:
         mean[1:] = series[:-1] + drift
         scale[1:] = spread
         return Forecast(mean=mean, scale=scale)
+
+
+class _CachingForecaster:
+    """Memoise an inner forecaster by channel-series content — for the val threshold sweep.
+
+    The val-split threshold tuner rebuilds the detector and re-runs detection once per candidate
+    threshold, but the forecast is **threshold-independent** (the threshold only gates the residual
+    afterwards), so a bare forecaster would re-forecast the whole val set N times. Wrapping it here
+    forecasts each ``(object, channel)`` series exactly once and reuses it across the sweep — the
+    forecast is the expensive part on CPU. Keyed by the series bytes (the same series is rebuilt per
+    detect call but its content is identical). Each real forecast logs, so progress is observable.
+    """
+
+    def __init__(self, inner: Forecaster) -> None:
+        self._inner = inner
+        self._cache: dict[bytes, Forecast] = {}
+
+    def forecast(self, series: FloatArray) -> Forecast:
+        key = series.tobytes()
+        hit = self._cache.get(key)
+        if hit is None:
+            _logger.info(
+                "forecasting a %d-token channel (%d cached so far)",
+                series.shape[0],
+                len(self._cache),
+            )
+            hit = self._inner.forecast(series)
+            self._cache[key] = hit
+        return hit
 
 
 class _ForecastResidualDetector(Detector):
