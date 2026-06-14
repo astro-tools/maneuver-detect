@@ -63,9 +63,17 @@ and checkpoints versioned in lockstep with each release; model cards per checkpo
 
 ## 8. Submission (v0.2 leaderboard)
 
-Held-out test labels; rate-limited submissions (anti-overfitting). The leaderboard mechanics and compute
-budget are settled by **V7 (v0.2)** — out of scope for v0.1, which freezes the protocol and ships the
-local scorer.
+The v0.2 leaderboard hosts the shipped deterministic scorer on the **public** test split as a
+**reproducibility / convenience board** (the **D12 amendment**): the test labels are part of the public
+CC-BY-4.0 dataset, so the board exists to give a method a directly comparable score on identical splits,
+not to hide an answer key. A submission is a `predictions.json` (a JSON array of canonical maneuver
+records); the response is **aggregate-only** (per-class above-floor recall at the operating point plus
+the published timing-only floor — never a per-label match table), and submissions are **rate-limited**
+as a courtesy / abuse guard. The scorer's matching windows are derived elset epochs the dataset does not
+redistribute (D2), so the Space's scoring fixture is built offline and supplied as private deploy-time
+data rather than committed. A true hidden-label competition (a never-committed forward holdout) is
+deferred to v0.3+. Settled by **V7 (v0.2)** as amended; out of scope for v0.1, which freezes the
+protocol and ships the local scorer.
 
 ## 9. Versioning
 

@@ -172,6 +172,24 @@ claim. The numbers are an order-of-magnitude estimate with a measured **acceptan
 hosting/integrity/budget rationale is in
 [`spikes/v7-leaderboard-integrity-and-compute-budget.md`](spikes/v7-leaderboard-integrity-and-compute-budget.md).
 
+**Amendment — v0.2 ships a reproducibility board, not a hidden-label competition (the open dataset).**
+D12.3's hidden-label firewall is **not achievable on the v0.2 test set, and is dropped.** The v0.2
+dataset publishes the full answer key: `dataset/v0.2/labels.json` commits every label (epoch / type / Δv
+/ window) and `splits.json` marks the `test` objects, so the held-out labels are public and — being in
+git history — irretractable. The V7 spike's hidden-label assumption was never reconciled with the
+open-dataset choice (D8/D9: all labels public, CC-BY-4.0, committed for reproducibility); the open
+dataset wins. The v0.2 leaderboard is therefore a **reproducibility / convenience board** on the public
+splits — it hosts the shipped deterministic scorer so a method gets a directly comparable number on
+identical splits. The **public/private-subset firewall (D12.3, point 2) is removed** — it cannot exist
+on a public test set — and the **aggregate-only response and the 5/user/UTC-day rate limit are kept as
+courtesy / abuse guards, not integrity guarantees.** A true hidden-label competition would need a
+separate, never-committed forward/rolling holdout sourced from data never added to the public dataset;
+that is **deferred to a v0.3+ follow-up.** One D2 consequence carries into the build: the scorer's
+matching windows are real elset epochs (derived Space-Track data the dataset does not redistribute), so
+the leaderboard's scoring fixture is **not committed** — it is built offline from a credentialed
+reconstruction and supplied to the Space as private deploy-time data. **D12.1 / D12.2 / D12.4** (hosting,
+the aggregate-only + fixed-schema integrity surfaces, compute budget) are unchanged.
+
 ---
 
 ## D13 — Expanded label-source set for v0.2 dataset growth (V2 follow-up) — *v0.2*
