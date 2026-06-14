@@ -78,8 +78,14 @@ the checkpoints versioned in lockstep with each release; and a model card per ch
 
 ## Submitting a method
 
-v0.1 ships the **local scorer**: reconstruct the dataset, run your detector to produce a predictions file,
-and score it against the labels with the snippet above to get numbers directly comparable to the classical
-baseline. A hosted leaderboard with held-out test labels and rate-limited submissions is planned for a later
-release — until then the protocol on this page is the shared contract, and the local scorer reproduces the
-published numbers.
+Two paths run the **same deterministic scorer** and produce the **same numbers**:
+
+- **The local scorer** — reconstruct the dataset, run your detector to produce a predictions file, and score
+  it against the labels with the snippet above. Numbers directly comparable to the baselines, with no account
+  beyond your own Space-Track access.
+- **The public [leaderboard](leaderboard.md)** — upload your `predictions.json` to the hosted Hugging Face
+  Space and read your per-class above-floor recall, ranked against the classical, BiLSTM, and transformer
+  baselines on the frozen v0.2 test split.
+
+The protocol on this page is the shared contract behind both. The [leaderboard guide](leaderboard.md) walks a
+submission end to end.

@@ -20,8 +20,9 @@ On the frozen v0.2 benchmark both learned baselines beat the classical reference
 metric — above-floor recall at the fixed false-alarm rate — driven by the LEO and GEO classes, while
 on the small MEO population the three are comparable. The exact per-class recall and precision each
 baseline reaches are recorded on its model card, generated from the checkpoint's own held-out
-evaluation, which is the authoritative source for the numbers; the classical detector is the bar the
-learned models are measured against.
+evaluation — which, together with the public [leaderboard](leaderboard.md), where the baselines and any
+submitted method are ranked on this same frozen split, is the authoritative source for the numbers; the
+classical detector is the bar the learned models are measured against.
 
 ## Run a learned model
 
