@@ -5,7 +5,8 @@ the forecast-residual detector consumes, on the same recipe as the Chronos backe
 leads with a point forecast; its predictive scale is taken from its continuous quantile head when
 available (the spread of the returned quantiles) and otherwise estimated from the robust spread of
 the model's own recent one-step residuals — so the residual standardisation has a scale either way.
-The model is loaded from the Hub on CPU at the pinned revision and ``compile``d once; ``timesfm`` is
+The model is loaded from the Hub at the pinned revision onto a GPU when present (else CPU) and
+``compile``d once; ``timesfm`` is
 imported lazily, so this module is reached only with the extra installed.
 """
 
@@ -30,7 +31,11 @@ _SCALE_FLOOR = 1e-12
 
 
 class TimesFmForecaster:
-    """A pretrained TimesFM model as a one-step-ahead element-channel forecaster (CPU-only)."""
+    """A pretrained TimesFM model as a one-step-ahead element-channel forecaster.
+
+    Loads onto a GPU when present, else CPU (never required); ``forecast`` returns the point and
+    quantile arrays on CPU.
+    """
 
     def __init__(self, *, checkpoint_id: str, revision: str, context_length: int) -> None:
         import timesfm

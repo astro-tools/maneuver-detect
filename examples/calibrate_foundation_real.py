@@ -2,15 +2,16 @@
 
 This produces the publishable v0.3 foundation bundle and its held-out per-class numbers. It
 reconstructs the committed dataset from Space-Track (credentialed; the elements are never written to
-the repo, per D2), builds the forecaster for the chosen backend (zero-shot by default — CPU-only;
-``--finetune`` adds a light Chronos fine-tune on a GPU), calibrates the residual-z operating point
+the repo, per D2), builds the forecaster for the chosen backend (zero-shot by default — no GPU
+required, though it uses one when present; ``--finetune`` adds a light Chronos fine-tune on a GPU),
+calibrates the residual-z operating point
 on the val split, scores the result on the leak-free **test** split, records the per-class
 recall/precision into the bundle, and writes it out. The saved bundle is then ready for
 ``maneuver-detect models publish <backend>-residual <out.pt>`` (its generated model card carries
 those numbers) and to seed the leaderboard via ``leaderboard/build_fixture.py``.
 
 It is a thin wrapper over the ``maneuver-detect models calibrate-foundation`` subcommand, which does
-the work. Zero-shot needs only a Space-Track account — no GPU, no Hugging Face token:
+the work. Zero-shot needs only a Space-Track account — no GPU required, no Hugging Face token:
 
     python examples/calibrate_foundation_real.py chronos ./chronos-residual.pt
     python examples/calibrate_foundation_real.py timesfm ./timesfm-residual.pt

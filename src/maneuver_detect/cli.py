@@ -244,9 +244,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "committed dataset from Space-Track (credentials via SPACETRACK_USERNAME / "
             "SPACETRACK_PASSWORD; the elements are never written to the repo, per D2), calibrate "
             "the residual-z operating point on the val split, score it on the held-out test split, "
-            "record the per-class metrics into the bundle, and write it to <out>. Zero-shot is "
-            "CPU-only; --finetune adds a light Chronos fine-tune (GPU). The scored bundle is then "
-            "ready for 'models publish'. Without credentials it prints how to set them and exits."
+            "record the per-class metrics into the bundle, and write it to <out>. Zero-shot needs "
+            "no GPU (it uses one when present); --finetune adds a light Chronos fine-tune. The "
+            "scored bundle is then ready for 'models publish'. Without credentials it prints how "
+            "to set them and exits."
         ),
     )
     calibrate_parser.add_argument(
@@ -509,7 +510,7 @@ def _run_models_calibrate_foundation(
 
     if not (os.environ.get("SPACETRACK_USERNAME") and os.environ.get("SPACETRACK_PASSWORD")):
         print("Calibrating a foundation bundle reconstructs the real dataset from Space-Track.")
-        print("Set the two environment variables and re-run (zero-shot is CPU only, no GPU):")
+        print("Set the two environment variables and re-run (zero-shot needs no GPU):")
         print("  export SPACETRACK_USERNAME='you@example.com'")
         print("  export SPACETRACK_PASSWORD='your-space-track-password'")
         print("The fetched elements are never written to the repo (reconstruct locally, per D2).")
@@ -525,7 +526,7 @@ def _run_models_calibrate_foundation(
     from maneuver_detect.schema import ManeuverType
 
     # Surface the reconstruct, fine-tune, calibration, and per-forecast progress live on stderr; the
-    # calibrate/score phase is otherwise silent and CPU-bound, so this is the run's only feedback.
+    # calibrate/score phase is otherwise silent and compute-bound, so this is the only feedback.
     # Stop propagation so a root handler the foundation stack installs on import (timesfm / absl)
     # cannot double every line, and avoid stacking our own handler if invoked twice in a process.
     progress = logging.getLogger("maneuver_detect")

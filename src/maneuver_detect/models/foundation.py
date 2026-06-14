@@ -332,7 +332,7 @@ def calibrate_and_score(
 
 
 def build_forecaster_for(bundle: FoundationBundle) -> Forecaster:
-    """Build the (lazy, CPU-only) forecaster for ``bundle`` — a thin re-export for the driver."""
+    """Build the (lazy; GPU when present) forecaster for ``bundle`` — a thin driver re-export."""
     from maneuver_detect.detectors.foundation import build_forecaster
 
     return build_forecaster(bundle)

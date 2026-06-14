@@ -4,8 +4,8 @@ Wraps a pretrained Chronos pipeline as the :class:`~maneuver_detect.detectors.fo
 the forecast-residual detector consumes: a rolling one-step-ahead forecast of a single element
 channel, with the predictive scale read off Chronos's native probabilistic quantiles (the half-width
 of the 80% predictive interval) — the property that made Chronos the D14.4 lead. The model is loaded
-from the Hub on CPU at the pinned revision (Apache-2.0 confirmed at ingest, D14.2) and run under
-``no_grad``; an optional light fine-tune ``state_dict`` is loaded onto it.
+from the Hub at the pinned revision (Apache-2.0 confirmed at ingest, D14.2) onto a GPU when present
+(else CPU) and run under ``no_grad``; an optional light fine-tune ``state_dict`` is loaded onto it.
 
 :func:`finetune_chronos_model` is the offline light-fine-tune driver (D14.3 *optional polish*): a
 short AdamW pass over the objects' element windows specialising the quiet-dynamics prior to the
@@ -30,6 +30,14 @@ __all__ = ["ChronosForecaster", "finetune_chronos_model"]
 
 FloatArray = npt.NDArray[np.float64]
 
+
+def _device() -> str:
+    """The compute device — a GPU when one is present, else CPU (a GPU is never required)."""
+    import torch
+
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
 #: Quantile levels requested per forecast; the residual's predictive scale is half the spread of the
 #: outer two (the 80% predictive interval) — Chronos's probabilistic edge over a point forecaster.
 _QUANTILE_LEVELS = [0.1, 0.5, 0.9]
@@ -40,7 +48,11 @@ _SCALE_FLOOR = 1e-12
 
 
 class ChronosForecaster:
-    """A pretrained Chronos pipeline as a one-step-ahead element-channel forecaster (CPU-only)."""
+    """A pretrained Chronos pipeline as a one-step-ahead element-channel forecaster.
+
+    Loads onto a GPU when one is present, else CPU (a GPU is never required); the predict outputs
+    are pulled back to CPU as NumPy.
+    """
 
     def __init__(
         self,
@@ -55,7 +67,7 @@ class ChronosForecaster:
 
         self._context_length = context_length
         pipeline = BaseChronosPipeline.from_pretrained(
-            checkpoint_id, revision=revision, device_map="cpu", torch_dtype=torch.float32
+            checkpoint_id, revision=revision, device_map=_device(), torch_dtype=torch.float32
         )
         if finetune_state is not None:
             pipeline.model.load_state_dict(finetune_state)
@@ -152,8 +164,9 @@ def finetune_chronos_model(
     from torch.utils.data import DataLoader, TensorDataset
 
     torch.manual_seed(seed)
+    device = _device()
     pipeline = BaseChronosPipeline.from_pretrained(
-        checkpoint_id, revision=revision, device_map="cpu", torch_dtype=torch.float32
+        checkpoint_id, revision=revision, device_map=device, torch_dtype=torch.float32
     )
     model = pipeline.model
     horizon = int(model.config.chronos_config["prediction_length"])
@@ -172,7 +185,7 @@ def finetune_chronos_model(
     while step < max_steps:
         for context_batch, target_batch in loader:
             optimiser.zero_grad()
-            output = model(context=context_batch, target=target_batch)
+            output = model(context=context_batch.to(device), target=target_batch.to(device))
             output.loss.backward()
             optimiser.step()
             last_loss = float(output.loss.detach())

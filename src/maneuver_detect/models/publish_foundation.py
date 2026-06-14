@@ -161,8 +161,9 @@ model forecasts, the physics inverts).
 
 ## How to use
 
-The bundle is fetched from this repo automatically on first use — CPU-only, cached on disk, no
-weights at install time. The forecaster needs the optional `[foundation]` extra:
+The bundle is fetched from this repo automatically on first use — cached on disk, no weights at
+install time; inference is CPU-capable and uses a GPU when one is present. The forecaster needs the
+optional `[foundation]` extra:
 
 ```python
 # pip install "maneuver-detect[foundation]"

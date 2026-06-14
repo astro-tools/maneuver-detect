@@ -2,8 +2,8 @@
 
 The package ships the classical reference detector in-tree, and distributes the learned baselines and
 the labelled dataset through the [Hugging Face Hub](https://huggingface.co/astro-tools). Nothing
-heavy is fetched at install time: a learned checkpoint and the dataset are pulled on first use,
-CPU-only, and cached on disk.
+heavy is fetched at install time: a learned checkpoint and the dataset are pulled on first use and
+cached on disk.
 
 ## Detectors
 
@@ -52,9 +52,11 @@ or from the command line:
 maneuver-detect detect 25544 --model transformer-base
 ```
 
-Inference is CPU-only — a GPU is needed only to *train* a new baseline, never to run one. The
-checkpoint bundle carries the network weights together with the frozen train-split normaliser and the
-windowing parameters, so a download reproduces the exact training-time inference pipeline.
+The torch baselines run inference CPU-only — a GPU is needed only to *train* a new one. (The
+foundation baselines instead use a GPU when one is present, falling back to CPU; a GPU is never
+required.) The checkpoint bundle carries the network weights together with the frozen train-split
+normaliser and the windowing parameters, so a download reproduces the exact training-time inference
+pipeline.
 
 ### Caching, offline use, and a local checkpoint
 
@@ -122,8 +124,8 @@ HF_TOKEN=... maneuver-detect models publish timesfm-residual ./timesfm-residual.
 The scored foundation bundle is produced first by `models calibrate-foundation` (or
 `examples/calibrate_foundation_real.py`), which reconstructs the dataset from Space-Track, calibrates
 the residual-z operating point on the val split, and scores the result on the held-out test split,
-writing the per-class metrics into the bundle. Zero-shot is CPU-only; `--finetune` adds a light
-Chronos fine-tune on a GPU:
+writing the per-class metrics into the bundle. Zero-shot needs no GPU (it uses one when present);
+`--finetune` adds a light Chronos fine-tune on a GPU:
 
 ```bash
 SPACETRACK_USERNAME=... SPACETRACK_PASSWORD=... \

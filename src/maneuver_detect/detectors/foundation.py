@@ -260,7 +260,7 @@ class _ForecastResidualDetector(Detector):
             self._class_thresholds = dict(loaded.class_thresholds)
 
     def _load_from_hub(self) -> None:
-        """Fetch this detector's Hub-published bundle and load it (CPU-only, cached on disk)."""
+        """Fetch this detector's Hub-published bundle and load it (cached on disk)."""
         from maneuver_detect import hub
 
         path = hub.checkpoint_path(self.name)
@@ -284,7 +284,7 @@ class _ForecastResidualDetector(Detector):
         ``history`` is a mean-element series; a frame with multiple objects is grouped by
         ``norad_id`` and each object detected independently, with rows returned sorted by
         ``(norad_id, epoch)``. The first call with no local forecaster fetches the detector's
-        Hub-published bundle (CPU-only, cached on disk). Raises
+        Hub-published bundle (cached on disk). Raises
         :class:`~maneuver_detect.hub.HubError` if that fetch fails and :class:`ValueError` if the
         detector has no forecaster and none can be resolved.
         """
@@ -383,7 +383,7 @@ def _confidence(z: float, threshold: float) -> float:
 
 
 def build_forecaster(bundle: FoundationBundle) -> Forecaster:
-    """Build the foundation forecaster a :class:`FoundationBundle` describes (lazy, CPU-only).
+    """Build the forecaster a :class:`FoundationBundle` describes (lazy; GPU when present).
 
     Dispatches on the bundle's ``backend`` tag to the Chronos or TimesFM backend, both imported
     lazily from the optional ``[foundation]`` extra so the base install never pays for them. Raises
