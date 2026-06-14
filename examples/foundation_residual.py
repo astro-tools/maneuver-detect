@@ -1,6 +1,6 @@
 """Demonstrate the foundation forecast-residual recipe through the detector, fully offline.
 
-The v0.3 foundation baselines (``chronos-residual`` / ``timesfm-residual``) detect maneuvers by
+The v0.3 foundation baseline (``chronos-residual``) detects maneuvers by
 *forecasting* a satellite's mean-element series with a pretrained model and flagging the gaps where
 the realised series departs from the forecast beyond a per-class threshold; the same Gauss physics
 inversion the classical detector uses then recovers the delta-v and type. The real forecasters live
@@ -9,7 +9,7 @@ self-contained script.
 
 This example shows the *recipe* on a synthetic series with the dependency-free
 ``DriftContinuationForecaster`` standing in for the model slot — the same stand-in the V6 spike used
-to prove the wiring. A real run swaps in Chronos or TimesFM and changes nothing downstream:
+to prove the wiring. A real run swaps in Chronos and changes nothing downstream:
 
     pip install "maneuver-detect[foundation]"
     python -c "from maneuver_detect import detect, datasets; \\
@@ -65,7 +65,7 @@ def synthetic_series() -> pd.DataFrame:
 def main() -> None:
     history = synthetic_series()
     # The registered detector, with the dependency-free stand-in filling the forecaster slot a real
-    # Chronos / TimesFM model occupies. Everything downstream — the threshold, NMS, the Gauss
+    # Chronos model occupies. Everything downstream — the threshold, NMS, the Gauss
     # inversion, the canonical schema — is exactly what the real detector runs.
     detector = ChronosResidualDetector(
         forecaster=DriftContinuationForecaster(), class_thresholds=_CLASS_THRESHOLDS
@@ -80,8 +80,8 @@ def main() -> None:
     else:
         print(maneuvers.to_string(index=False))
     print(
-        '\nInstall "maneuver-detect[foundation]" and pass model="chronos-residual" (or '
-        '"timesfm-residual")\nto run the same recipe with the real pretrained forecaster.'
+        '\nInstall "maneuver-detect[foundation]" and pass model="chronos-residual"\n'
+        "to run the same recipe with the real pretrained forecaster."
     )
 
 

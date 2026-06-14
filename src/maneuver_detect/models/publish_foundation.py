@@ -29,9 +29,9 @@ if TYPE_CHECKING:
 
 __all__ = ["FOUNDATION_MODEL_NAMES", "build_foundation_card", "publish_foundation"]
 
-#: The registered foundation detector names this publisher handles (the ``*-residual`` baselines).
+#: The registered foundation detector names this publisher handles (the ``*-residual`` baseline).
 #: The CLI routes a ``models publish`` for one of these here rather than to the torch publisher.
-FOUNDATION_MODEL_NAMES = frozenset({"chronos-residual", "timesfm-residual"})
+FOUNDATION_MODEL_NAMES = frozenset({"chronos-residual"})
 
 
 def publish_foundation(
@@ -44,7 +44,7 @@ def publish_foundation(
 ) -> str:
     """Upload the foundation bundle ``bundle_path`` and its generated model card to the Hub.
 
-    ``name`` is the registered detector name (``"chronos-residual"`` / ``"timesfm-residual"``); it
+    ``name`` is the registered detector name (``"chronos-residual"``); it
     selects the target Hub model repo (:data:`maneuver_detect.hub.MODELS`). The bundle is loaded
     first (validating it and supplying the card's provenance), then the ``.pt`` and a ``README.md``
     model card are uploaded and the lockstep ``v{version}`` tag is moved onto them. ``token`` is the

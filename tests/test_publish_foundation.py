@@ -129,18 +129,18 @@ def test_publish_foundation_refuses_an_unscored_bundle(
     api = _FakeApi()
     monkeypatch.setattr(hub, "hf_api", lambda token=None: api)
     bundle = FoundationBundle(
-        backend="timesfm",
-        checkpoint_id="google/timesfm-2.5-200m-pytorch",
+        backend="chronos",
+        checkpoint_id="amazon/chronos-bolt-small",
         revision="main",
         context_length=64,
         class_thresholds={"LEO": 4.0},
         metadata={"mode": "zero-shot"},  # no test_report
     )
-    path = tmp_path / "timesfm-residual.pt"
+    path = tmp_path / "chronos-residual.pt"
     save_foundation_bundle(bundle, path)
 
     with pytest.raises(hub.HubError, match="no recorded held-out test metrics"):
-        publish_foundation("timesfm-residual", path, token="x")
+        publish_foundation("chronos-residual", path, token="x")
     assert api.uploads == []  # nothing uploaded before the refusal
 
 

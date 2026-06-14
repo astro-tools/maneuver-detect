@@ -99,8 +99,7 @@ jobs:
         run: |
           python - <<'PY'
           import importlib.util
-          for mod in ("chronos", "timesfm"):
-              assert importlib.util.find_spec(mod) is None, f"{mod} leaked into the base install"
+          assert importlib.util.find_spec("chronos") is None, "chronos leaked into the base install"
           print("foundation stack absent from base install")
           PY
 
@@ -124,10 +123,10 @@ jobs:
       - run: uv run python -c "import maneuver_detect, torch, lightning; print('torch', torch.__version__)"
       - run: uv run pytest -m smoke
 
-  # Foundation forecast-residual baselines. The [foundation] extra (chronos / timesfm) is NOT in
-  # the default install, so the `foundation`-marked tests importorskip and are skipped everywhere
-  # else; this dedicated job installs the extra and runs them, exercising the real Chronos/TimesFM
-  # forecast-residual path on a CPU runner (it downloads small checkpoints from the Hub).
+  # Foundation forecast-residual baseline. The [foundation] extra (chronos) is NOT in the default
+  # install, so the `foundation`-marked tests importorskip and are skipped everywhere else; this
+  # dedicated job installs the extra and runs them, exercising the real Chronos forecast-residual
+  # path on a CPU runner (it downloads a small checkpoint from the Hub).
   foundation:
     name: foundation extra (CPU)
     runs-on: ubuntu-latest
@@ -142,7 +141,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --all-groups --extra foundation
-      - run: uv run python -c "import chronos, timesfm; print('foundation stack import OK')"
+      - run: uv run python -c "import chronos; print('foundation stack import OK')"
       - run: uv run pytest -m foundation
 
   # Scorer-determinism + dataset-reconstruction checks. Wired as the `benchmark` marker; the

@@ -214,10 +214,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     models_publish_parser.add_argument(
         "name",
-        help=(
-            "registered detector name (bilstm-base | transformer-base | "
-            "chronos-residual | timesfm-residual)"
-        ),
+        help=("registered detector name (bilstm-base | transformer-base | chronos-residual)"),
     )
     models_publish_parser.add_argument("bundle", help="path to the trained checkpoint bundle (.pt)")
     models_publish_parser.add_argument(
@@ -251,7 +248,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     calibrate_parser.add_argument(
-        "backend", choices=("chronos", "timesfm"), help="the foundation forecaster backend"
+        "backend", choices=("chronos",), help="the foundation forecaster backend"
     )
     calibrate_parser.add_argument("out", help="path to write the calibrated, scored bundle (.pt)")
     calibrate_parser.add_argument(
@@ -527,8 +524,8 @@ def _run_models_calibrate_foundation(
 
     # Surface the reconstruct, fine-tune, calibration, and per-forecast progress live on stderr; the
     # calibrate/score phase is otherwise silent and compute-bound, so this is the only feedback.
-    # Stop propagation so a root handler the foundation stack installs on import (timesfm / absl)
-    # cannot double every line, and avoid stacking our own handler if invoked twice in a process.
+    # Stop propagation so a root handler the ML stack may install on import cannot double every
+    # line, and avoid stacking our own handler if the entry point is invoked twice in a process.
     progress = logging.getLogger("maneuver_detect")
     if not any(getattr(h, "_md_calibrate", False) for h in progress.handlers):
         handler = logging.StreamHandler(sys.stderr)

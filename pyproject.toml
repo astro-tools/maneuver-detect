@@ -58,7 +58,6 @@ dependencies = [
 [project.optional-dependencies]
 foundation = [
   "chronos-forecasting>=2.0",
-  "timesfm>=2.0",
 ]
 
 [project.scripts]
@@ -119,7 +118,7 @@ module = ["astropy", "astropy.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["chronos", "chronos.*", "timesfm", "timesfm.*"]
+module = ["chronos", "chronos.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -133,18 +132,17 @@ addopts = "-ra --strict-markers --strict-config"
 markers = [
   "smoke: lightweight import/availability checks runnable without data or model weights",
   "benchmark: scorer-determinism and dataset-reconstruction checks (fixtures grow with the benchmark layer)",
-  "foundation: forecast-residual detector checks needing the [foundation] extra (chronos / timesfm); skipped (importorskip) without it",
+  "foundation: forecast-residual detector checks needing the [foundation] extra (chronos); skipped (importorskip) without it",
 ]
 
 [tool.coverage.run]
 source = ["src/maneuver_detect"]
 branch = true
-# The Chronos / TimesFM backend adapters need the optional [foundation] extra, which the default
-# test job does not install (it is absent from the coverage run), so they are exercised only in the
-# dedicated `foundation` CI job. Omit them from the coverage floor rather than leave them at 0%.
+# The Chronos backend adapter needs the optional [foundation] extra, which the default test job does
+# not install (it is absent from the coverage run), so it is exercised only in the dedicated
+# `foundation` CI job. Omit it from the coverage floor rather than leave it at 0%.
 omit = [
   "src/maneuver_detect/detectors/_chronos.py",
-  "src/maneuver_detect/detectors/_timesfm.py",
 ]
 
 [tool.coverage.report]

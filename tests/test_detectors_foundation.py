@@ -2,8 +2,8 @@
 
 These exercise the whole detector mechanics (residual scoring, per-class thresholding, NMS,
 canonical emission, dispatch, gating) with a deterministic **stand-in** forecaster, so they run in
-the default suite without the optional ``[foundation]`` extra. The real Chronos / TimesFM backends
-are covered by the ``foundation``-marked tests, which need the extra installed.
+the default suite without the optional ``[foundation]`` extra. The real Chronos backend is
+covered by the ``foundation``-marked tests, which need the extra installed.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from maneuver_detect.detectors.foundation import (
     ChronosResidualDetector,
     DriftContinuationForecaster,
     Forecast,
-    TimesFmResidualDetector,
 )
 from maneuver_detect.models.foundation import FoundationBundle
 from maneuver_detect.schema import COLUMNS, validate_frame
@@ -37,10 +36,9 @@ def _stand_in_detector(threshold: float | None = None) -> ChronosResidualDetecto
     )
 
 
-def test_both_foundation_detectors_are_registered() -> None:
-    assert {"chronos-residual", "timesfm-residual"} <= set(available_models())
+def test_foundation_detector_is_registered() -> None:
+    assert "chronos-residual" in set(available_models())
     assert isinstance(get_detector("chronos-residual"), ChronosResidualDetector)
-    assert isinstance(get_detector("timesfm-residual"), TimesFmResidualDetector)
 
 
 def test_detects_an_injected_in_track_burn() -> None:
@@ -113,16 +111,16 @@ def test_unconfigured_detector_falls_back_to_hub_and_surfaces_download_failure(
 
 def test_backend_mismatch_is_rejected() -> None:
     # A bundle for the other backend must not load into this detector — the backend check fires
-    # before any forecaster is built, so this needs neither chronos nor timesfm.
-    timesfm_bundle = FoundationBundle(
-        backend="timesfm",
-        checkpoint_id="google/timesfm-2.5-200m-pytorch",
+    # before any forecaster is built, so this needs no foundation extra.
+    other_bundle = FoundationBundle(
+        backend="other-backend",
+        checkpoint_id="some/checkpoint",
         revision="main",
         context_length=64,
         class_thresholds=_THRESHOLDS,
     )
     with pytest.raises(ValueError, match="expects a 'chronos' bundle"):
-        ChronosResidualDetector(timesfm_bundle)
+        ChronosResidualDetector(other_bundle)
 
 
 def test_unconfigured_detector_without_hub_raises_value_error(
@@ -156,10 +154,8 @@ def test_build_forecaster_dispatch_and_unknown_backend(monkeypatch: pytest.Monke
 
     sentinel = DriftContinuationForecaster()
     monkeypatch.setattr(foundation, "_build_chronos_forecaster", lambda bundle: sentinel)
-    monkeypatch.setattr(foundation, "_build_timesfm_forecaster", lambda bundle: sentinel)
 
     assert foundation.build_forecaster(zero_shot_bundle("chronos")) is sentinel
-    assert foundation.build_forecaster(zero_shot_bundle("timesfm")) is sentinel
     # The driver's thin re-export resolves through the same dispatch.
     assert build_forecaster_for(zero_shot_bundle("chronos")) is sentinel
 

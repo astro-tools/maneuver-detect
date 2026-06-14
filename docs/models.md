@@ -13,18 +13,17 @@ cached on disk.
 | `bilstm-base` | [`astro-tools/maneuver-detect-bilstm-base`](https://huggingface.co/astro-tools/maneuver-detect-bilstm-base) | Learned BiLSTM; checkpoint pulled from the Hub. |
 | `transformer-base` | [`astro-tools/maneuver-detect-transformer-base`](https://huggingface.co/astro-tools/maneuver-detect-transformer-base) | Learned ~10M-parameter transformer; checkpoint pulled from the Hub. |
 | `chronos-residual` | [`astro-tools/maneuver-detect-chronos-residual`](https://huggingface.co/astro-tools/maneuver-detect-chronos-residual) | Foundation-model forecast-residual detector (Chronos); needs the `[foundation]` extra. |
-| `timesfm-residual` | [`astro-tools/maneuver-detect-timesfm-residual`](https://huggingface.co/astro-tools/maneuver-detect-timesfm-residual) | The same recipe on TimesFM, the drop-in second entry; needs the `[foundation]` extra. |
 
 A learned model localises maneuvers in the element series; the same vis-viva / Gauss physics
 inversion the classical detector uses then recovers the Δv magnitude and type for each detection.
 
-The foundation baselines (`chronos-residual`, `timesfm-residual`) take a different route to the same
-canonical output: rather than a trained classifier, they **forecast** the element series with a
-pretrained time-series model and flag the gaps where the realised series departs from the forecast
+The foundation baseline (`chronos-residual`) takes a different route to the same
+canonical output: rather than a trained classifier, it **forecasts** the element series with a
+pretrained time-series model and flags the gaps where the realised series departs from the forecast
 beyond a per-orbit-class threshold (a learned quiet-dynamics prior in place of the classical
-detector's hand-built one); the physics inversion is then identical. They live behind the optional
+detector's hand-built one); the physics inversion is then identical. It lives behind the optional
 `[foundation]` extra, so the base install stays light — `pip install "maneuver-detect[foundation]"`
-to use them.
+to use it.
 
 On the frozen v0.2 benchmark both learned baselines beat the classical reference on the headline
 metric — above-floor recall at the fixed false-alarm rate — driven by the LEO and GEO classes, while
@@ -68,8 +67,8 @@ pipeline.
   tag exists.
 - To run a locally-trained checkpoint instead of the Hub one, point the matching environment variable
   at the bundle: `MANEUVER_DETECT_BILSTM_CHECKPOINT` / `MANEUVER_DETECT_TRANSFORMER_CHECKPOINT`, or
-  `MANEUVER_DETECT_CHRONOS_CHECKPOINT` / `MANEUVER_DETECT_TIMESFM_CHECKPOINT` for the foundation
-  bundles. The resolution order is an explicitly-passed bundle, then that env var, then the Hub.
+  `MANEUVER_DETECT_CHRONOS_CHECKPOINT` for the foundation bundle. The resolution order is an
+  explicitly-passed bundle, then that env var, then the Hub.
 
 ## The dataset on the Hub
 
@@ -112,13 +111,12 @@ HF_TOKEN=... maneuver-detect models publish bilstm-base ./bilstm-base.pt
 HF_TOKEN=... maneuver-detect models publish transformer-base ./transformer-base.pt
 ```
 
-The foundation baselines publish the same way — `models publish` routes a `*-residual` name to the
+The foundation baseline publishes the same way — `models publish` routes a `*-residual` name to the
 foundation publisher, whose bundle pins the Apache-2.0 forecaster checkpoint and the calibrated
 per-class thresholds rather than network weights:
 
 ```bash
 HF_TOKEN=... maneuver-detect models publish chronos-residual ./chronos-residual.pt
-HF_TOKEN=... maneuver-detect models publish timesfm-residual ./timesfm-residual.pt
 ```
 
 The scored foundation bundle is produced first by `models calibrate-foundation` (or

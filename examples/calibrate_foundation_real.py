@@ -14,7 +14,6 @@ It is a thin wrapper over the ``maneuver-detect models calibrate-foundation`` su
 the work. Zero-shot needs only a Space-Track account — no GPU required, no Hugging Face token:
 
     python examples/calibrate_foundation_real.py chronos ./chronos-residual.pt
-    python examples/calibrate_foundation_real.py timesfm ./timesfm-residual.pt
     python examples/calibrate_foundation_real.py chronos ./chronos-residual.pt --finetune   # GPU
 
 Without credentials it prints how to set them and exits 0 (it never blocks on a prompt). The output
@@ -32,7 +31,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Calibrate + score a foundation bundle on the real dataset (credentialed)."
     )
-    parser.add_argument("backend", choices=("chronos", "timesfm"), help="the forecaster backend")
+    parser.add_argument("backend", choices=("chronos",), help="the forecaster backend")
     parser.add_argument("out", help="path to write the calibrated, scored bundle (.pt)")
     parser.add_argument(
         "--revision", default="main", help="the pinned, Apache-2.0-confirmed checkpoint revision"

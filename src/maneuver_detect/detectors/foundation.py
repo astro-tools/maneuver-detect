@@ -1,4 +1,4 @@
-"""Foundation-model forecast-residual detectors — Chronos (lead) and TimesFM (second entry).
+"""Foundation-model forecast-residual detector — the Chronos v0.3 baseline.
 
 The v0.3 baseline (decision **D14**) turns a pretrained time-series foundation model into a maneuver
 detector by **forecast-residual thresholding**, the recipe V6 proved against the shipped scorer. A
@@ -28,18 +28,18 @@ floor
   inverts. The confidence is read off the residual magnitude; the Δv is gated by the same per-type
   detectability floor the classical detector calibrates.
 
-The foundation stack is the optional **`[foundation]`** extra (``chronos-forecasting`` /
-``timesfm``,
-both Apache-2.0 — D14.5). Its imports are deferred to construction, so importing the package, or
-using
-the classical / v0.2 learned detectors, never pulls the foundation stack. Two detectors register on
-the same recipe, differing only in which forecaster fills the slot: ``"chronos-residual"`` (the lead
-baseline — native probabilistic quantiles give a clean predictive scale) and ``"timesfm-residual"``
-(the drop-in second entry). The forecaster is resolved in this order: an explicit
-:class:`Forecaster` (or :class:`~maneuver_detect.models.foundation.FoundationBundle`) passed to the
-constructor, then the ``$…_CHECKPOINT`` environment variable, then — for the no-argument
-construction
-the registry uses — the Hub-published bundle, fetched on first use.
+The foundation stack is the optional **`[foundation]`** extra (``chronos-forecasting``, Apache-2.0 —
+D14.5). Its imports are deferred to construction, so importing the package, or using the classical /
+v0.2 learned detectors, never pulls the foundation stack. The ``"chronos-residual"`` detector
+registers on this recipe; the pipeline is forecaster-agnostic (a :class:`Forecaster` protocol), so a
+further backend can drop in without touching it. The forecaster is resolved in this order: an
+explicit :class:`Forecaster` (or :class:`~maneuver_detect.models.foundation.FoundationBundle`)
+passed to the constructor, then the ``$…_CHECKPOINT`` environment variable, then — for the no-arg
+construction the registry uses — the Hub-published bundle, fetched on first use.
+
+(D14.4 also wired a TimesFM second entry, but its zero-shot forecast proved unreliable on real
+noisy LEO element series — sustained forecast biases that no transient filter removes, where Chronos
+stays robust — so the v0.3 baseline ships Chronos only; see the D14 ratification note.)
 """
 
 from __future__ import annotations
@@ -67,12 +67,10 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CHRONOS_CHECKPOINT_ENV",
-    "TIMESFM_CHECKPOINT_ENV",
     "ChronosResidualDetector",
     "DriftContinuationForecaster",
     "Forecast",
     "Forecaster",
-    "TimesFmResidualDetector",
     "_ForecastResidualDetector",
 ]
 
@@ -80,12 +78,10 @@ FloatArray = npt.NDArray[np.float64]
 
 _logger = logging.getLogger(__name__)
 
-#: Environment variables naming a local foundation-bundle path the no-argument detector loads, so
-#: the
+#: Environment variable naming a local foundation-bundle path the no-argument detector loads, so the
 #: ``detect(history, model=<name>)`` dispatch path can use a calibrated bundle without the caller
 #: threading one through. Unset, the no-argument detector falls back to the Hub-published bundle.
 CHRONOS_CHECKPOINT_ENV = "MANEUVER_DETECT_CHRONOS_CHECKPOINT"
-TIMESFM_CHECKPOINT_ENV = "MANEUVER_DETECT_TIMESFM_CHECKPOINT"
 
 #: A floor on the per-object robust scale, in each channel's own unit (km for ``a``, rad for the
 #: inclination), guarding the standardized residual against a degenerate near-constant quiet series
@@ -129,7 +125,7 @@ class Forecaster(Protocol):
     per token (:class:`Forecast`). The forecast-residual detector standardizes the realised series
     by
     this forecast and thresholds the residual; any model returning a value and a scale fits the slot
-    (Chronos and TimesFM in the extra, a deterministic stand-in in the tests).
+    (Chronos in the extra, a deterministic stand-in in the tests).
     """
 
     def forecast(self, series: FloatArray) -> Forecast:
@@ -149,8 +145,8 @@ class DriftContinuationForecaster:
     the V6 spike's stand-in: it proves the residual → per-class-threshold → canonical-record
     contract
     without any model weights, and a foundation model only raises forecast quality on the same
-    contract. Used as the detector's reference / test forecaster; the registered detectors fill the
-    slot with Chronos or TimesFM instead.
+    contract. Used as the detector's reference / test forecaster; the registered detector fills the
+    slot with Chronos instead.
     """
 
     def __init__(self, *, scale_floor: float = 0.0) -> None:
@@ -216,7 +212,7 @@ class _ForecastResidualDetector(Detector):
     val-split threshold tuner sweeps).
     """
 
-    #: The foundation backend a bundle for this detector must carry (``"chronos"`` / ``"timesfm"``).
+    #: The foundation backend a bundle for this detector must carry (``"chronos"``).
     backend: ClassVar[str]
     #: The environment variable naming a local bundle path the no-argument detector loads.
     checkpoint_env: ClassVar[str]
@@ -385,17 +381,13 @@ def _confidence(z: float, threshold: float) -> float:
 def build_forecaster(bundle: FoundationBundle) -> Forecaster:
     """Build the forecaster a :class:`FoundationBundle` describes (lazy; GPU when present).
 
-    Dispatches on the bundle's ``backend`` tag to the Chronos or TimesFM backend, both imported
-    lazily from the optional ``[foundation]`` extra so the base install never pays for them. Raises
-    :class:`ValueError` for an unknown backend.
+    Dispatches on the bundle's ``backend`` tag — currently the Chronos backend, imported lazily from
+    the optional ``[foundation]`` extra so the base install never pays for it. The dispatch stays
+    open for additional backends; an unknown one raises :class:`ValueError`.
     """
     if bundle.backend == "chronos":
         return _build_chronos_forecaster(bundle)
-    if bundle.backend == "timesfm":
-        return _build_timesfm_forecaster(bundle)
-    raise ValueError(
-        f"unknown foundation backend {bundle.backend!r}; supported: 'chronos', 'timesfm'"
-    )
+    raise ValueError(f"unknown foundation backend {bundle.backend!r}; supported: 'chronos'")
 
 
 def _rolling_contexts(series: FloatArray, context_length: int) -> list[FloatArray]:
@@ -420,24 +412,11 @@ def _build_chronos_forecaster(bundle: FoundationBundle) -> Forecaster:  # pragma
     )
 
 
-def _build_timesfm_forecaster(bundle: FoundationBundle) -> Forecaster:  # pragma: no cover
-    """Build the TimesFM forecaster from a bundle (needs the ``[foundation]`` extra)."""
-    from maneuver_detect.detectors._timesfm import TimesFmForecaster
-
-    return TimesFmForecaster(
-        checkpoint_id=bundle.checkpoint_id,
-        revision=bundle.revision,
-        context_length=bundle.context_length,
-    )
-
-
 class ChronosResidualDetector(_ForecastResidualDetector):
-    """Chronos forecast-residual detector — the v0.3 lead baseline (D14.4).
+    """Chronos forecast-residual detector — the v0.3 foundation baseline (D14.4).
 
-    Chronos samples token sequences into empirical predictive quantiles out of the box, so the
-    residual's predictive scale (and a calibrated confidence) come straight from the forecast. All
-    the
-    inference machinery is the shared forecaster-agnostic pipeline in
+    Chronos brings a broad pretrained prior over time-series shape and is robust on real, noisy
+    element series. All the inference machinery is the shared forecaster-agnostic pipeline in
     :class:`_ForecastResidualDetector`; this class only pins the registry name, the checkpoint
     environment variable, and the ``"chronos"`` backend.
     """
@@ -445,18 +424,3 @@ class ChronosResidualDetector(_ForecastResidualDetector):
     name = "chronos-residual"
     backend = "chronos"
     checkpoint_env: ClassVar[str] = CHRONOS_CHECKPOINT_ENV
-
-
-class TimesFmResidualDetector(_ForecastResidualDetector):
-    """TimesFM forecast-residual detector — the drop-in second entry on the same recipe (D14.4).
-
-    TimesFM is point-forecast by default, so its predictive scale is estimated from the spread of
-    its
-    recent one-step residuals; otherwise it shares the whole pipeline with the Chronos detector.
-    Pins
-    the registry name, the checkpoint environment variable, and the ``"timesfm"`` backend.
-    """
-
-    name = "timesfm-residual"
-    backend = "timesfm"
-    checkpoint_env: ClassVar[str] = TIMESFM_CHECKPOINT_ENV

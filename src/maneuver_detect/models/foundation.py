@@ -70,16 +70,12 @@ class FoundationDefault:
     context_length: int
 
 
-#: Per-backend default checkpoints (Apache-2.0, D14.2/D14.4). Chronos-Bolt is the CPU-fast lead;
-#: TimesFM is the drop-in second entry (the current ``timesfm`` package loads the 2.5 checkpoint).
-#: The *revision* is pinned per build at ingest (a model card can change between revisions — D14.2),
-#: so it is supplied to :func:`zero_shot_bundle` rather than baked here; ``"main"`` is only the
-#: unpinned fallback the offline ingest replaces.
+#: Per-backend default checkpoints (Apache-2.0, D14.2/D14.4). Chronos-Bolt is the CPU-fast lead and
+#: the v0.3 baseline backend. The *revision* is pinned per build at ingest (a model card can change
+#: between revisions — D14.2), so it is supplied to :func:`zero_shot_bundle` rather than baked here;
+#: ``"main"`` is only the unpinned fallback the offline ingest replaces.
 FOUNDATION_DEFAULTS: dict[str, FoundationDefault] = {
     "chronos": FoundationDefault(checkpoint_id="amazon/chronos-bolt-small", context_length=64),
-    "timesfm": FoundationDefault(
-        checkpoint_id="google/timesfm-2.5-200m-pytorch", context_length=64
-    ),
 }
 
 #: The residual-z detection thresholds :func:`calibrate_thresholds` sweeps — standardized-residual
@@ -104,7 +100,7 @@ class FoundationBundle:
     """A calibrated foundation forecast-residual detector — everything inference needs.
 
     Attributes:
-        backend: The forecaster family — ``"chronos"`` (lead) or ``"timesfm"`` (second entry).
+        backend: The forecaster family — ``"chronos"`` (the v0.3 baseline backend).
         checkpoint_id: The Hub checkpoint the forecaster loads (e.g. ``amazon/chronos-bolt-small``).
         revision: The **pinned** checkpoint revision, confirmed Apache-2.0 at ingest (D14.2).
         context_length: The rolling one-step-ahead forecast context — the tokens of history the
@@ -341,15 +337,9 @@ def build_forecaster_for(bundle: FoundationBundle) -> Forecaster:
 def _bundle_detector(
     bundle: FoundationBundle, forecaster: Forecaster, *, threshold: float | None
 ) -> _ForecastResidualDetector:
-    from maneuver_detect.detectors.foundation import (
-        ChronosResidualDetector,
-        TimesFmResidualDetector,
-    )
+    from maneuver_detect.detectors.foundation import ChronosResidualDetector
 
-    detector_cls = {
-        "chronos": ChronosResidualDetector,
-        "timesfm": TimesFmResidualDetector,
-    }[bundle.backend]
+    detector_cls = {"chronos": ChronosResidualDetector}[bundle.backend]
     return detector_cls(
         forecaster=forecaster, class_thresholds=bundle.class_thresholds, threshold=threshold
     )
