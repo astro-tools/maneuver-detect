@@ -56,10 +56,20 @@ class HubModel:
 
 #: Detector name → its Hub model repo + bundle filename. ``detect(history, model=<name>)`` with no
 #: local checkpoint (no explicit bundle, no ``$…_CHECKPOINT`` env var) pulls the bundle from here.
+#: The ``*-residual`` entries are the v0.3 foundation baselines — their bundle is a
+#: :class:`~maneuver_detect.models.foundation.FoundationBundle` (a pinned forecaster id + calibrated
+#: per-class thresholds), not the torch-network
+#: :class:`~maneuver_detect.models.checkpoint.ModelBundle`.
 MODELS: dict[str, HubModel] = {
     "bilstm-base": HubModel("astro-tools/maneuver-detect-bilstm-base", "bilstm-base.pt"),
     "transformer-base": HubModel(
         "astro-tools/maneuver-detect-transformer-base", "transformer-base.pt"
+    ),
+    "chronos-residual": HubModel(
+        "astro-tools/maneuver-detect-chronos-residual", "chronos-residual.pt"
+    ),
+    "timesfm-residual": HubModel(
+        "astro-tools/maneuver-detect-timesfm-residual", "timesfm-residual.pt"
     ),
 }
 

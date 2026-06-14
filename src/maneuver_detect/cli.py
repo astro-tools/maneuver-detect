@@ -205,7 +205,11 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     models_publish_parser.add_argument(
-        "name", help="registered detector name (bilstm-base | transformer-base)"
+        "name",
+        help=(
+            "registered detector name (bilstm-base | transformer-base | "
+            "chronos-residual | timesfm-residual)"
+        ),
     )
     models_publish_parser.add_argument("bundle", help="path to the trained checkpoint bundle (.pt)")
     models_publish_parser.add_argument(
@@ -412,16 +416,27 @@ def _run_models_publish(
     *,
     allow_unscored: bool = False,
 ) -> int:
-    """Publish a trained checkpoint bundle + its generated model card to the Hugging Face Hub."""
+    """Publish a trained checkpoint bundle + its generated model card to the Hugging Face Hub.
+
+    A ``*-residual`` name is a v0.3 foundation baseline whose bundle is a ``FoundationBundle`` (a
+    pinned forecaster + calibrated thresholds), so it routes to the foundation publisher; the torch
+    baselines route to the checkpoint publisher. Both generate the card from the bundle's
+    provenance.
+    """
     import sys
 
     from maneuver_detect.datasets.catalogue import DATASET_VERSION
     from maneuver_detect.errors import ManeuverDetectError
     from maneuver_detect.models.publish import publish_checkpoint
+    from maneuver_detect.models.publish_foundation import (
+        FOUNDATION_MODEL_NAMES,
+        publish_foundation,
+    )
 
     resolved_version = version if version is not None else DATASET_VERSION
+    publish = publish_foundation if name in FOUNDATION_MODEL_NAMES else publish_checkpoint
     try:
-        repo_id = publish_checkpoint(
+        repo_id = publish(
             name, bundle, token=token, version=resolved_version, allow_unscored=allow_unscored
         )
     except (ManeuverDetectError, OSError) as exc:

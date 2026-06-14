@@ -1245,7 +1245,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "astropy", specifier = ">=6.0" },
-    { name = "chronos-forecasting", marker = "extra == 'foundation'", specifier = ">=1.4" },
+    { name = "chronos-forecasting", marker = "extra == 'foundation'", specifier = ">=2.0" },
     { name = "datasets", specifier = ">=2.19" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "huggingface-hub", specifier = ">=0.24" },
@@ -1254,7 +1254,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.0" },
     { name = "platformdirs", specifier = ">=4.0" },
     { name = "sgp4", specifier = ">=2.20" },
-    { name = "timesfm", marker = "extra == 'foundation'", specifier = ">=1.2" },
+    { name = "timesfm", marker = "extra == 'foundation'", specifier = ">=2.0" },
     { name = "torch", specifier = ">=2.2" },
 ]
 provides-extras = ["foundation"]
