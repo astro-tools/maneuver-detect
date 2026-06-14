@@ -275,7 +275,7 @@ the shared benchmark, held-out scoring that back-fills the model card, and a lig
 (GPU when present, else CPU). The extra is exercised by a dedicated `importorskip` CI job; the
 minimal-install job still asserts it is absent from the base install.
 
-Two implementation findings amended the spike's plan:
+Three implementation findings amended the spike's plan:
 
 - **Standardise by a robust per-object MAD, not the model's per-gap predictive interval.** The
   predictive interval D14.1 leaned on (and D14.4 cited as Chronos's edge) **collapses toward zero on
@@ -293,6 +293,12 @@ Two implementation findings amended the spike's plan:
   exactly why D14.4 made Chronos the lead; revisiting TimesFM (e.g. with a fine-tune) is a possible
   future entry, not a v0.3 deliverable. The shipped extra is therefore `[foundation] =
   chronos-forecasting`.
+- **Zero-shot ships; the fine-tune is measured but not the default.** The leak-free light fine-tune
+  (train-split objects only — the earlier wiring leaked val/test, fixed under #103; 200 steps on
+  `chronos-bolt-small`) was run: **LEO ≈0.57 / MEO ≈0.46 / GEO ≈0.03**. It lifts the LEO core but
+  lowers GEO and *pooled* recall versus zero-shot (LEO/MEO-dominated train windows), for a ~190 MB
+  bundle vs the 3.7 KB zero-shot one. So the v0.3 baseline ships **zero-shot**, and the fine-tune
+  stays the optional polish D14.3 framed it as.
 
 The calibrated cutoff is frozen across classes for now (genuine per-class thresholds are a later
 deliverable). Publishing the bundle + card to the Hub and seeding the leaderboard is the offline
