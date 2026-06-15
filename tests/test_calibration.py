@@ -248,6 +248,29 @@ def test_bundled_calibration_temperature_scaling_is_the_baked_calibrator() -> No
     assert cal.temperature_scaling().temperature == cal.temperature
 
 
+def test_bundled_calibration_falls_back_to_identity_when_no_ece_gain() -> None:
+    # A perfectly-calibrated, separable val sample (raw ECE already 0): no temperature can reduce
+    # it, so the do-no-harm guard ships identity (T = 1) rather than a confidence-distorting fit.
+    conf = np.array([0.0, 0.0, 1.0, 1.0])
+    outcome = np.array([0.0, 0.0, 1.0, 1.0])
+    cal = BundledCalibration.fit({"LEO": CalibrationSamples(conf, outcome)})
+    assert cal.temperature == 1.0
+
+
+def test_bundled_calibration_is_never_worse_calibrated_than_raw() -> None:
+    # The shipped calibration's pooled ECE never exceeds the raw confidence's (the do-no-harm
+    # invariant), whichever way the guard resolves.
+    samples = _val_samples()
+    cal = BundledCalibration.fit(samples)
+    pooled_conf = np.concatenate([s.confidences for s in samples.values()])
+    pooled_out = np.concatenate([s.outcomes for s in samples.values()])
+    raw_ece = expected_calibration_error(pooled_conf, pooled_out)
+    cal_ece = expected_calibration_error(
+        cal.temperature_scaling().transform(pooled_conf), pooled_out
+    )
+    assert cal_ece <= raw_ece + 1e-12
+
+
 def test_apply_calibration_remaps_confidence_and_keeps_schema() -> None:
     frame = _FixedDetector([0.9, 0.1, 0.5]).detect(pd.DataFrame())
     temperature = TemperatureScaling(temperature=2.0)

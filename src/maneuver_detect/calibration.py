@@ -89,7 +89,11 @@ def _logit(p: FloatArray) -> FloatArray:
 
 
 def _sigmoid(x: FloatArray) -> FloatArray:
-    return np.asarray(1.0 / (1.0 + np.exp(-x)), dtype=np.float64)
+    # Clamp the exponent before exp: a near-separable fit can drive ``x`` past the float range, and
+    # an unclamped ``exp(-x)`` overflows to inf (a benign RuntimeWarning — the sigmoid has already
+    # saturated to 0/1 well before — but noise). ±700 keeps ``exp`` finite without moving the value.
+    clamped = np.clip(x, -700.0, 700.0)
+    return np.asarray(1.0 / (1.0 + np.exp(-clamped)), dtype=np.float64)
 
 
 @dataclass(frozen=True)
@@ -390,6 +394,13 @@ class BundledCalibration:
         per-detector calibrator), then measures the per-class reliability and ECE on the
         **calibrated** confidences — the curve the published detector's emitted confidence actually
         follows. Raises :class:`ValueError` when no class carries a matched detection to fit on.
+
+        **Do no harm:** the fitted temperature is kept only when it actually *reduces* the pooled
+        val ECE; otherwise it falls back to identity (``T = 1``, raw confidence). On a sparse or
+        poorly-separated val split the BCE-optimal temperature can collapse toward the clamp bound
+        and merely flatten the confidence toward the base rate — which does not calibrate — so a
+        detector that cannot be meaningfully calibrated ships its raw confidence rather than a
+        confidence-distorting transform.
         """
         pooled_conf = (
             np.concatenate([s.confidences for s in samples.values()])
@@ -405,6 +416,13 @@ class BundledCalibration:
             raise ValueError("no matched detections on the val split to calibrate on")
         temperature = TemperatureScaling.fit(pooled_conf, pooled_out)
         conformal = ConformalPredictor.fit(pooled_conf, pooled_out, alpha=alpha)
+        # Do no harm: keep the temperature only if it lowers the pooled ECE, else ship identity.
+        raw_ece = expected_calibration_error(pooled_conf, pooled_out, n_bins=n_bins)
+        cal_ece = expected_calibration_error(
+            temperature.transform(pooled_conf), pooled_out, n_bins=n_bins
+        )
+        if not cal_ece < raw_ece:
+            temperature = TemperatureScaling(temperature=1.0)
         reliability: dict[str, ReliabilityCurve] = {}
         ece: dict[str, float] = {}
         for key, sample in samples.items():
