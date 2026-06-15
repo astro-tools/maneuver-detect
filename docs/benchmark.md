@@ -88,8 +88,9 @@ ece = expected_calibration_error(leo.confidences, leo.outcomes)
 ```
 
 Calibration only rescales the confidence column — it does not change which gaps a detector fires on, just how
-confident it says it is. The reliability diagrams and per-class operating points for each shipped detector are
-published with the versioned models.
+confident it says it is. The per-class operating points for each shipped detector are published with the
+versioned models; the reliability diagnostics above (`reliability_curve`, `expected_calibration_error`) are
+available from the calibration API for any detector and split.
 
 ## Scorer
 

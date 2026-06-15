@@ -358,12 +358,21 @@ class _ForecastResidualDetector(Detector):
             forecast = self._forecaster.forecast(series)  # type: ignore[union-attr]
             residual = series - forecast.mean  # residual[0] is undefined (no forecast at token 0)
             body = residual[1:]
-            center = float(np.median(body))
-            mad = 1.4826 * float(np.median(np.abs(body - center)))
+            # Centre and scale on the *finite* residuals only. A single non-finite forecast value
+            # (a forecaster edge case, or a cleaned series with an interior gap) would otherwise
+            # poison the per-object median/MAD into NaN, drive the scale to NaN, and zero this
+            # channel's score for every token — silently suppressing real detections. Instead a
+            # non-finite token simply scores 0 (it cannot trigger a detection) while the rest of
+            # the channel scores normally.
+            finite = np.isfinite(body)
+            if not finite.any():
+                continue
+            center = float(np.median(body[finite]))
+            mad = 1.4826 * float(np.median(np.abs(body[finite] - center)))
             scale = max(mad, floor)
             z = np.zeros(n, dtype=np.float64)
-            z[1:] = np.abs(body - center) / scale
-            score = np.maximum(score, np.nan_to_num(z, nan=0.0, posinf=0.0, neginf=0.0))
+            z[1:][finite] = np.abs(body[finite] - center) / scale
+            score = np.maximum(score, z)
         return score
 
 

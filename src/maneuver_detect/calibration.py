@@ -67,6 +67,11 @@ def _as_pairs(confidences: npt.ArrayLike, outcomes: npt.ArrayLike) -> tuple[Floa
         )
     if conf.ndim != 1:
         raise ValueError(f"confidences and outcomes must be 1-D, got {conf.ndim}-D")
+    # A NaN slips past the range check below (``nan < 0`` and ``nan > 1`` are both False), so guard
+    # it explicitly — an unfiltered NaN confidence silently poisons ECE/Brier and biases a fitted
+    # temperature or conformal quantile to NaN with no error.
+    if conf.size and not np.isfinite(conf).all():
+        raise ValueError("confidences must be finite")
     if conf.size and (conf.min() < 0.0 or conf.max() > 1.0):
         raise ValueError("confidences must lie in [0, 1]")
     if out.size and not np.isin(out, (0.0, 1.0)).all():
@@ -239,6 +244,8 @@ class TemperatureScaling:
     def transform(self, confidences: npt.ArrayLike) -> FloatArray:
         """Rescale ``confidences`` through the fitted temperature, staying in ``[0, 1]``."""
         conf = np.asarray(confidences, dtype=np.float64)
+        if conf.size and not np.isfinite(conf).all():
+            raise ValueError("confidences must be finite")
         if conf.size and (conf.min() < 0.0 or conf.max() > 1.0):
             raise ValueError("confidences must lie in [0, 1]")
         return _sigmoid(_logit(conf) / self.temperature)

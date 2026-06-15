@@ -36,6 +36,21 @@ def _stand_in_detector(threshold: float | None = None) -> ChronosResidualDetecto
     )
 
 
+class _NaNInjectingForecaster:
+    """The drift stand-in with one non-finite forecast token poked in, to prove a single bad
+    forecast value cannot zero a whole channel's residual score."""
+
+    def __init__(self, bad_index: int) -> None:
+        self._inner = DriftContinuationForecaster()
+        self._bad_index = bad_index
+
+    def forecast(self, series: np.ndarray) -> Forecast:
+        base = self._inner.forecast(series)
+        mean = base.mean.copy()
+        mean[self._bad_index] = np.nan
+        return Forecast(mean=mean, scale=base.scale)
+
+
 def test_foundation_detector_is_registered() -> None:
     assert "chronos-residual" in set(available_models())
     assert isinstance(get_detector("chronos-residual"), ChronosResidualDetector)
@@ -54,6 +69,39 @@ def test_detects_an_injected_in_track_burn() -> None:
     assert frame["epoch"].iloc[44] <= strongest["elset_epoch_after"] <= frame["epoch"].iloc[46]
     assert 0.0 <= strongest["confidence"] <= 1.0
     assert strongest["delta_v_estimate"] > 0.0  # a 4 m/s in-track burn clears the LEO floor
+
+
+def test_detects_an_injected_cross_track_burn() -> None:
+    # A cross-track burn steps the inclination, so the detection comes from the *inclination*
+    # channel — every other detection assertion in this suite rides the in-track / semi-major-axis
+    # channel, so this is the one place the cross-track channel is pinned to actually fire.
+    frame = synthetic_series(norad_id=1, seed=3, n=120, burns=(Burn(45, "cross_track_ms", 4.0),))
+    out = _stand_in_detector().detect(frame)
+
+    validate_frame(out)
+    assert not out.empty
+    near_burn = out[
+        (out["elset_epoch_after"] >= frame["epoch"].iloc[44])
+        & (out["elset_epoch_after"] <= frame["epoch"].iloc[46])
+    ]
+    assert not near_burn.empty  # the inclination channel fires on the cross-track burn's gap
+    assert (near_burn["confidence"].between(0.0, 1.0)).all()
+
+
+def test_a_single_nonfinite_forecast_does_not_zero_the_channel() -> None:
+    # A non-finite forecast at an unrelated quiet token must not wipe the whole channel's score:
+    # the in-track burn at token 45 is still detected (the pre-fix median/MAD would NaN the scale
+    # and zero every token of the channel).
+    frame = synthetic_series(norad_id=1, seed=3, n=120, burns=(Burn(45, "in_track_ms", 4.0),))
+    detector = ChronosResidualDetector(
+        forecaster=_NaNInjectingForecaster(bad_index=10),
+        class_thresholds=_THRESHOLDS,
+    )
+    out = detector.detect(frame)
+
+    assert not out.empty
+    strongest = out.loc[out["confidence"].idxmax()]
+    assert frame["epoch"].iloc[44] <= strongest["elset_epoch_after"] <= frame["epoch"].iloc[46]
 
 
 def test_threshold_gates_detection_count() -> None:
