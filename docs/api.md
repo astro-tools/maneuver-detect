@@ -37,3 +37,7 @@ frozen library contract; modules not listed are internal and may change between 
 ## Benchmark
 
 ::: maneuver_detect.benchmark
+
+## Calibration
+
+::: maneuver_detect.calibration
