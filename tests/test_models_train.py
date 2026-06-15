@@ -192,6 +192,31 @@ def test_val_benchmark_selection_runs_and_records_recall() -> None:
     assert isinstance(bundle.metadata["best_val_recall"], float)
 
 
+def test_val_benchmark_selection_runs_under_the_macro_objective() -> None:
+    # The class-balance objective threads through ValBenchmark into the per-epoch selection score;
+    # the macro objective trains and records best_val_recall just like the pooled default.
+    val_frame = synthetic_series(norad_id=5, seed=5, n=900, burns=(Burn(450, "in_track_ms", 4.0),))
+    spec = ValBenchmark(
+        series_by_norad={5: val_frame},
+        labels=[_val_label(val_frame, 450, 4.0)],
+        split=_temporal_split(val=frozenset({5})),
+        objective="macro",
+    )
+    bundle = train_bilstm(
+        _train_objects(),
+        config=_CONFIG,
+        max_epochs=2,
+        seed=0,
+        window=32,
+        stride=16,
+        batch_size=8,
+        accelerator="cpu",
+        val_benchmark=spec,
+        patience=10,
+    )
+    assert isinstance(bundle.metadata["best_val_recall"], float)
+
+
 def test_temporal_split_scoring_is_keyed_to_the_named_partition() -> None:
     # The anti-leak invariant behind val-based selection and threshold tuning (D8: tuned on VAL,
     # never TEST): scoring is keyed to the named partition, so an object placed in VAL is scored

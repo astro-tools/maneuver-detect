@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -99,6 +100,18 @@ def test_threshold_gates_detection_count(bundle: ModelBundle) -> None:
     frame = synthetic_series(norad_id=1, seed=5, burns=(Burn(45, "in_track_ms", 4.0),), n=90)
     low = BiLstmDetector(bundle, threshold=0.1).detect(frame)
     high = BiLstmDetector(bundle, threshold=0.99).detect(frame)
+    assert len(high) <= len(low)
+
+
+def test_per_class_threshold_from_bundle_gates_detection_count(bundle: ModelBundle) -> None:
+    # The per-class machinery lives in the shared _LearnedDetector, so the BiLSTM adopts the
+    # bundle's per-class gates and applies the LEO gate to the (LEO) object like the scalar does.
+    frame = synthetic_series(norad_id=1, seed=5, burns=(Burn(45, "in_track_ms", 4.0),), n=90)
+    low = BiLstmDetector(replace(bundle, class_thresholds={"LEO": 0.1})).detect(frame)
+    high = BiLstmDetector(replace(bundle, class_thresholds={"LEO": 0.99})).detect(frame)
+    assert BiLstmDetector(replace(bundle, class_thresholds={"LEO": 0.1}))._class_thresholds == {
+        "LEO": 0.1
+    }
     assert len(high) <= len(low)
 
 

@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from torch import nn
 
     from maneuver_detect.features.normalize import ClassNormaliser
+    from maneuver_detect.labels.record import OrbitClass
     from maneuver_detect.models.checkpoint import ModelBundle
 
 __all__ = ["_AlignedElements", "_LearnedDetector", "_detected_gaps"]
@@ -61,8 +62,11 @@ class _LearnedDetector(Detector):
     Construct with a trained checkpoint (a :class:`~maneuver_detect.models.checkpoint.ModelBundle`
     or a path to one); the no-argument construction the registry uses falls back to the
     :attr:`checkpoint_env` path, and raises from :meth:`detect` if neither is available.
-    ``threshold`` overrides the bundle's default per-gap maneuver-probability threshold. Subclasses
-    set :attr:`~maneuver_detect.detectors.base.Detector.name` and :attr:`checkpoint_env`; everything
+    ``threshold`` overrides the bundle's per-gap maneuver-probability threshold with a single gate
+    applied to every orbit class; ``class_thresholds`` (``OrbitClass`` value → gate) overrides the
+    bundle's per-class gates, so GEO can take a lower gate than LEO/MEO (a scalar ``threshold``
+    override takes precedence over both). Subclasses set
+    :attr:`~maneuver_detect.detectors.base.Detector.name` and :attr:`checkpoint_env`; everything
     else — the architecture-agnostic inference pipeline — lives here.
     """
 
@@ -76,6 +80,7 @@ class _LearnedDetector(Detector):
         checkpoint: ModelBundle | str | Path | None = None,
         *,
         threshold: float | None = None,
+        class_thresholds: dict[str, float] | None = None,
     ) -> None:
         if checkpoint is None:
             env_path = os.environ.get(self.checkpoint_env)
@@ -87,6 +92,7 @@ class _LearnedDetector(Detector):
         self._stride = 0
         self._threshold = 0.5
         self._threshold_override = threshold
+        self._class_thresholds: dict[str, float] = dict(class_thresholds or {})
         # No explicit bundle and no env-var path: fall back to the Hub-published checkpoint, fetched
         # lazily on the first detect() call (so construction stays network-free — the resolution
         # order is explicit bundle → $…_CHECKPOINT → Hub).
@@ -106,6 +112,20 @@ class _LearnedDetector(Detector):
         self._window = bundle.window
         self._stride = bundle.stride
         self._threshold = bundle.threshold if threshold is None else threshold
+        # Adopt the bundle's per-class gates unless the constructor supplied its own.
+        if not self._class_thresholds:
+            self._class_thresholds = dict(bundle.class_thresholds)
+
+    def _threshold_for(self, orbit_class: OrbitClass) -> float:
+        """The per-gap gate for ``orbit_class`` — the scalar override, else the per-class value.
+
+        A scalar ``threshold`` override (constructor or bundle default when no per-class gate
+        applies) wins; otherwise the per-class map gates the class, falling back to the scalar
+        :attr:`_threshold` for any class without its own entry.
+        """
+        if self._threshold_override is not None:
+            return self._threshold_override
+        return self._class_thresholds.get(orbit_class.value, self._threshold)
 
     def _load_from_hub(self) -> None:
         """Fetch this detector's Hub-published checkpoint and load it (CPU-only, cached on disk)."""
@@ -155,7 +175,7 @@ class _LearnedDetector(Detector):
     def _detect_object(self, series: pd.DataFrame) -> list[Maneuver]:
         channels = build_channels(series)
         token_prob = self._token_probabilities(channels)
-        gaps = _detected_gaps(token_prob, self._threshold)
+        gaps = _detected_gaps(token_prob, self._threshold_for(channels.orbit_class))
         if not gaps:
             return []
 

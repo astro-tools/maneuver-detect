@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 import pandas as pd
 
@@ -30,24 +31,36 @@ from maneuver_detect.benchmark import (
 from maneuver_detect.detectors.base import Detector
 from maneuver_detect.detectors.classical import ClassicalDetector
 from maneuver_detect.labels.labeller import label_series
-from maneuver_detect.labels.record import ManeuverLabel
+from maneuver_detect.labels.record import ManeuverLabel, OrbitClass
 from maneuver_detect.physics import orbit_class_of
 from maneuver_detect.schema import Maneuver, ManeuverType, from_frame
 
 __all__ = [
     "DEFAULT_THRESHOLD_SWEEP",
+    "PerClassThresholdTuning",
+    "SelectionObjective",
     "ThresholdTuning",
     "detections_for_partition",
+    "macro_above_floor_recall",
+    "objective_recall",
     "pooled_above_floor_recall",
     "score_on_temporal_split",
     "scoring_inputs_for_partition",
     "tune_threshold_on_val",
+    "tune_thresholds_per_class_on_val",
 ]
 
 _SECONDS_PER_YEAR = 365.25 * 86400.0
 
-#: The default per-gap detection thresholds :func:`tune_threshold_on_val` searches over.
+#: The default per-gap detection thresholds the threshold tuners search over.
 DEFAULT_THRESHOLD_SWEEP: tuple[float, ...] = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+
+#: The class-balance of the checkpoint-selection / threshold-tuning objective: ``"pooled"`` weights
+#: each orbit class by its above-floor label count (the overall recall — GEO, the majority class,
+#: dominates), ``"macro"`` weights every class equally (so the smaller LEO/MEO classes are not
+#: traded away for GEO, and an epoch or threshold that keeps the GEO signal can still win on its own
+#: merits). See :func:`objective_recall`.
+SelectionObjective = Literal["pooled", "macro"]
 
 # Which era each partition draws from (oldest -> newest), matching TemporalSplit's construction.
 _PARTITION_ERA: dict[SplitName, int] = {
@@ -209,20 +222,96 @@ def pooled_above_floor_recall(report: ScoreReport) -> float:
     return hit / total if total else 0.0
 
 
+def macro_above_floor_recall(report: ScoreReport) -> float:
+    """Above-floor recall averaged across classes with equal weight per orbit class.
+
+    The unweighted mean of the per-class recalls, so each class counts the same regardless of how
+    many above-floor labels it carries. Because GEO holds the large majority of the v0.2 labels, the
+    label-count-weighted :func:`pooled_above_floor_recall` lets a model trade the smaller LEO/MEO
+    classes away; this objective does not. Classes with no above-floor labels (or an undefined
+    recall) are skipped; with no scored class the score is ``0.0``.
+    """
+    recalls = [
+        metrics.recall
+        for metrics in report.per_class.values()
+        if metrics.recall is not None and metrics.n_labels_above_floor > 0
+    ]
+    return sum(recalls) / len(recalls) if recalls else 0.0
+
+
+def objective_recall(report: ScoreReport, objective: SelectionObjective = "pooled") -> float:
+    """The selection objective the checkpoint selection and the threshold tuners maximise.
+
+    Dispatches on ``objective``: ``"pooled"`` is :func:`pooled_above_floor_recall` (label-count
+    weighted, the unchanged default), ``"macro"`` is :func:`macro_above_floor_recall` (equal weight
+    per orbit class). One scalar either way, so the same selection code serves both balances.
+
+    Raises:
+        ValueError: if ``objective`` is neither ``"pooled"`` nor ``"macro"``.
+    """
+    if objective == "pooled":
+        return pooled_above_floor_recall(report)
+    if objective == "macro":
+        return macro_above_floor_recall(report)
+    raise ValueError(f"unknown selection objective {objective!r}; expected 'pooled' or 'macro'")
+
+
 @dataclass(frozen=True)
 class ThresholdTuning:
-    """The outcome of a val-split threshold search.
+    """The outcome of a single-threshold val-split search.
 
     Attributes:
-        threshold: The per-gap detection threshold with the best pooled above-floor recall on the
+        threshold: The per-gap detection threshold with the best objective above-floor recall on the
             scored partition (the lowest such threshold on a tie, favouring recall).
-        recall: That best pooled above-floor recall.
-        by_threshold: The pooled recall at every candidate threshold, for provenance / inspection.
+        recall: That best objective above-floor recall.
+        by_threshold: The objective recall at every candidate threshold, for provenance.
     """
 
     threshold: float
     recall: float
     by_threshold: dict[float, float]
+
+
+def _sweep_reports(
+    make_detector: Callable[[float], Detector],
+    series_by_norad: Mapping[int, pd.DataFrame],
+    labels: Sequence[ManeuverLabel],
+    split: TemporalSplit,
+    *,
+    candidates: Sequence[float],
+    partition: SplitName,
+    operating_point: float,
+    sweep: tuple[float, ...],
+) -> dict[float, ScoreReport]:
+    """Score ``make_detector(candidate)`` on ``partition`` for each candidate threshold.
+
+    The shared sweep behind both threshold tuners: one benchmark :class:`ScoreReport` per candidate
+    — era-scoped labels, in-era detections, per-type floor — so the global and the per-class tuner
+    read the same per-class metrics from one pass rather than re-scoring.
+
+    Raises:
+        ValueError: if ``candidates`` is empty.
+    """
+    if not candidates:
+        raise ValueError("candidates must be non-empty")
+
+    reports: dict[float, ScoreReport] = {}
+    for candidate in candidates:
+        reports[candidate] = score_on_temporal_split(
+            make_detector(candidate),
+            series_by_norad,
+            labels,
+            split,
+            partition=partition,
+            operating_point=operating_point,
+            sweep=sweep,
+        )
+    return reports
+
+
+def _best_threshold(by_value: Mapping[float, float]) -> float:
+    """The threshold with the highest value, ties to the lower one (favouring recall)."""
+    return max(by_value, key=lambda t: (by_value[t], -t))
 
 
 def tune_threshold_on_val(
@@ -235,38 +324,126 @@ def tune_threshold_on_val(
     partition: SplitName = SplitName.VAL,
     operating_point: float = DEFAULT_OPERATING_POINT,
     sweep: tuple[float, ...] = DEFAULT_SWEEP,
+    objective: SelectionObjective = "pooled",
 ) -> ThresholdTuning:
-    """Pick the per-gap threshold that maximises pooled above-floor recall on a held-out partition.
+    """Pick the per-gap threshold that maximises the ``objective`` recall on a held-out partition.
 
     A trained model fixes its weights but not its decision threshold; the right threshold is a
     selection on held-out data, not a guess. For each ``candidate`` this builds a detector at that
     threshold (``make_detector(threshold)``) and scores the partition (the val split by default)
     through the same benchmark the leaderboard uses — era-scoped labels, in-era detections, per-type
     floor, recall reported at ``operating_point`` false-alarms/satellite-year — then keeps the
-    threshold with the best :func:`pooled_above_floor_recall`. Because recall is measured *at* a
-    fixed false-alarm budget, a flood of low-threshold detections does not trivially win, so the
-    search trades recall against precision the way the published metric does. Re-freeze the chosen
-    threshold into the bundle (``dataclasses.replace(bundle, threshold=...)``) before scoring test.
+    threshold with the best :func:`objective_recall` (``"pooled"`` by default, ``"macro"`` to weight
+    every class equally). Because recall is measured *at* a fixed false-alarm budget, a flood of
+    low-threshold detections does not trivially win, so the search trades recall against precision
+    the way the published metric does. Re-freeze the chosen threshold into the bundle
+    (``dataclasses.replace(bundle, threshold=...)``) before scoring test.
 
     Raises:
-        ValueError: if ``candidates`` is empty.
+        ValueError: if ``candidates`` is empty or ``objective`` is unknown.
     """
-    if not candidates:
-        raise ValueError("candidates must be non-empty")
-
-    by_threshold: dict[float, float] = {}
-    for candidate in candidates:
-        report = score_on_temporal_split(
-            make_detector(candidate),
-            series_by_norad,
-            labels,
-            split,
-            partition=partition,
-            operating_point=operating_point,
-            sweep=sweep,
-        )
-        by_threshold[candidate] = pooled_above_floor_recall(report)
-
-    # Best recall, breaking ties towards the lower threshold (favouring recall over precision).
-    best = max(by_threshold, key=lambda t: (by_threshold[t], -t))
+    reports = _sweep_reports(
+        make_detector,
+        series_by_norad,
+        labels,
+        split,
+        candidates=candidates,
+        partition=partition,
+        operating_point=operating_point,
+        sweep=sweep,
+    )
+    by_threshold = {t: objective_recall(report, objective) for t, report in reports.items()}
+    best = _best_threshold(by_threshold)
     return ThresholdTuning(threshold=best, recall=by_threshold[best], by_threshold=by_threshold)
+
+
+@dataclass(frozen=True)
+class PerClassThresholdTuning:
+    """The outcome of a per-orbit-class val-split threshold search.
+
+    Each orbit class gets its own per-gap detection threshold — GEO can take a lower gate than
+    LEO/MEO — selected independently as the threshold maximising *that class's* above-floor recall.
+    A scalar fallback (the best ``objective`` threshold across the whole population) covers classes
+    with no above-floor signal on the val split, so the result is always usable on every class.
+
+    Attributes:
+        thresholds: ``OrbitClass`` value → the per-gap threshold maximising that class's above-floor
+            recall (lowest on a tie, favouring recall). Classes with no above-floor val label — and
+            so no defined recall to optimise — are omitted; the detector falls back to ``fallback``.
+        fallback: The single best-:func:`objective_recall` threshold over the whole population (what
+            :func:`tune_threshold_on_val` would return) — the bundle's scalar ``threshold``, applied
+            to any class absent from ``thresholds``.
+        recall: The objective above-floor recall at ``fallback`` (provenance).
+        by_threshold: The objective recall at every candidate, for provenance / inspection.
+        by_class: ``OrbitClass`` value → that class's recall at every candidate, for provenance.
+    """
+
+    thresholds: dict[str, float]
+    fallback: float
+    recall: float
+    by_threshold: dict[float, float]
+    by_class: dict[str, dict[float, float]]
+
+
+def tune_thresholds_per_class_on_val(
+    make_detector: Callable[[float], Detector],
+    series_by_norad: Mapping[int, pd.DataFrame],
+    labels: Sequence[ManeuverLabel],
+    split: TemporalSplit,
+    *,
+    candidates: Sequence[float] = DEFAULT_THRESHOLD_SWEEP,
+    partition: SplitName = SplitName.VAL,
+    operating_point: float = DEFAULT_OPERATING_POINT,
+    sweep: tuple[float, ...] = DEFAULT_SWEEP,
+    objective: SelectionObjective = "pooled",
+) -> PerClassThresholdTuning:
+    """Select a per-orbit-class detection threshold (plus a scalar fallback) on a held-out split.
+
+    The per-class generalisation of :func:`tune_threshold_on_val`. The candidate sweep is scored
+    once; because the benchmark computes each class's recall-at-fixed-false-alarm independently for
+    a given detector threshold, the best threshold *for each class* is read off the same reports —
+    for each :class:`~maneuver_detect.labels.record.OrbitClass`, the candidate maximising that
+    class's above-floor recall (lowest on a tie, favouring recall). Per-class composition at
+    inference is
+    therefore exact: a GEO object gated at the GEO threshold behaves as it did at that point of the
+    sweep, regardless of the gates the other classes take. ``objective`` selects only the scalar
+    ``fallback`` (the whole-population best, for classes with no above-floor val signal); the
+    per-class choices are each on their own class's recall. Freeze the result into the bundle with
+    ``replace(bundle, threshold=tuning.fallback, class_thresholds=tuning.thresholds)``.
+
+    Raises:
+        ValueError: if ``candidates`` is empty or ``objective`` is unknown.
+    """
+    reports = _sweep_reports(
+        make_detector,
+        series_by_norad,
+        labels,
+        split,
+        candidates=candidates,
+        partition=partition,
+        operating_point=operating_point,
+        sweep=sweep,
+    )
+    by_threshold = {t: objective_recall(report, objective) for t, report in reports.items()}
+    fallback = _best_threshold(by_threshold)
+
+    thresholds: dict[str, float] = {}
+    by_class: dict[str, dict[float, float]] = {}
+    for orbit_class in OrbitClass:
+        per_candidate: dict[float, float] = {}
+        for candidate, report in reports.items():
+            metrics = report.per_class.get(orbit_class)
+            if metrics is not None and metrics.recall is not None and metrics.n_labels_above_floor:
+                per_candidate[candidate] = metrics.recall
+        if not per_candidate:
+            continue  # no above-floor val label for this class — it falls back to the scalar
+        by_class[orbit_class.value] = per_candidate
+        thresholds[orbit_class.value] = _best_threshold(per_candidate)
+
+    return PerClassThresholdTuning(
+        thresholds=thresholds,
+        fallback=fallback,
+        recall=by_threshold[fallback],
+        by_threshold=by_threshold,
+        by_class=by_class,
+    )

@@ -7,8 +7,11 @@ end and reproducibly:
    written to the repo, per D2);
 2. slice the labelled objects by the frozen leak-free temporal split;
 3. train the BiLSTM through the shared Lightning harness on a single GPU (``accelerator="auto"``,
-   within the V7 budget);
-4. save the checkpoint bundle (weights + the train-split normaliser + windowing/threshold);
+   within the V7 budget), selecting the checkpoint on the val-split recall under the chosen
+   class-balance objective;
+4. tune a **per-orbit-class** detection threshold on the **val** split through the benchmark and
+   freeze the gates — plus the scalar fallback — with the weights and the train-split normaliser
+   into the checkpoint bundle;
 5. score the held-out **test** split through the benchmark — era-scoped labels, in-era detections,
    per-type floor — and print the recall / precision per class for the model card.
 
@@ -19,8 +22,11 @@ GPU. Set ``SPACETRACK_USERNAME`` / ``SPACETRACK_PASSWORD`` and run it from a CUD
     python examples/train_bilstm_real.py
 
 Without credentials it prints how to set them and exits 0 (it never blocks on a prompt). The number
-of epochs is the ``MANEUVER_DETECT_TRAIN_EPOCHS`` environment variable (default 150). The output
-stays ASCII (the delta-v column prints as ``delta_v_estimate``).
+of epochs is the ``MANEUVER_DETECT_TRAIN_EPOCHS`` environment variable (default 150). The
+class-balance of the checkpoint-selection and threshold-tuning objective is
+``MANEUVER_DETECT_SELECTION_OBJECTIVE`` (``pooled`` default, ``macro`` to weight every orbit class
+equally — lifting GEO without trading LEO/MEO away). The output stays ASCII (the delta-v column
+prints as ``delta_v_estimate``).
 """
 
 from __future__ import annotations
@@ -71,6 +77,16 @@ def _has_credentials() -> bool:
     return bool(os.environ.get("SPACETRACK_USERNAME") and os.environ.get("SPACETRACK_PASSWORD"))
 
 
+def _selection_objective() -> str:
+    """The class-balance objective from ``MANEUVER_DETECT_SELECTION_OBJECTIVE`` (default pooled)."""
+    value = os.environ.get("MANEUVER_DETECT_SELECTION_OBJECTIVE", "pooled")
+    if value not in ("pooled", "macro"):
+        raise SystemExit(
+            f"MANEUVER_DETECT_SELECTION_OBJECTIVE must be 'pooled' or 'macro', got {value!r}"
+        )
+    return value
+
+
 def _guide_without_credentials() -> int:
     print("This run reconstructs the real v0.2 dataset from Space-Track and needs credentials.")
     print("Set the two environment variables and re-run on a GPU box:")
@@ -90,10 +106,14 @@ def main() -> int:
     from maneuver_detect.detectors.bilstm import BiLstmDetector
     from maneuver_detect.models.checkpoint import save_bundle
     from maneuver_detect.models.datamodule import objects_from_labelled_dataset
-    from maneuver_detect.models.evaluate import score_on_temporal_split
+    from maneuver_detect.models.evaluate import (
+        score_on_temporal_split,
+        tune_thresholds_per_class_on_val,
+    )
     from maneuver_detect.models.train import ValBenchmark, train_bilstm
 
     epochs = int(os.environ.get("MANEUVER_DETECT_TRAIN_EPOCHS", str(_DEFAULT_EPOCHS)))
+    objective = _selection_objective()
     labels_by_norad = _load_labels_by_norad(_DATA / "labels.json")
     split = TemporalSplit.from_json((_DATA / "splits.json").read_text())
 
@@ -106,7 +126,9 @@ def main() -> int:
         f"val={len(sliced['val'])}  test={len(sliced['test'])}"
     )
 
-    print(f"Training the BiLSTM for up to {epochs} epochs on a single GPU...")
+    print(
+        f"Training the BiLSTM for up to {epochs} epochs on a single GPU (objective={objective})..."
+    )
     started = time.time()
     bundle = train_bilstm(
         sliced["train"],
@@ -119,11 +141,31 @@ def main() -> int:
         # Select the checkpoint on the val-split benchmark recall (the metric we publish), not the
         # BCE val_loss surrogate (which bottoms out fast and undertrains the GEO signal).
         val_benchmark=ValBenchmark(
-            series_by_norad=series_by_norad, labels=dataset.labels, split=split
+            series_by_norad=series_by_norad,
+            labels=dataset.labels,
+            split=split,
+            objective=objective,
         ),
         metadata={"dataset_version": "0.2.0"},
     )
     gpu_hours = (time.time() - started) / 3600.0
+
+    # Tune a per-orbit-class decision threshold on the val split (the weights are fixed; the
+    # threshold is a selection), and freeze the per-class gates plus a scalar fallback into the
+    # bundle before scoring test. GEO can take a lower gate than LEO/MEO.
+    tuning = tune_thresholds_per_class_on_val(
+        lambda t: BiLstmDetector(bundle, threshold=t),
+        series_by_norad,
+        dataset.labels,
+        split,
+        objective=objective,
+    )
+    bundle = replace(bundle, threshold=tuning.fallback, class_thresholds=tuning.thresholds)
+    gates = ", ".join(f"{cls} {gate:g}" for cls, gate in sorted(tuning.thresholds.items()))
+    print(
+        f"tuned thresholds -> fallback {tuning.fallback:g} (val recall {tuning.recall:.2f})  "
+        f"per-class: {gates or '(none)'}"
+    )
 
     # Score the held-out test split through the benchmark (the model-card / leaderboard numbers) and
     # record the full report into the checkpoint, so the generated model card carries the per-class
