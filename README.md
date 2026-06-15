@@ -12,10 +12,11 @@ maneuver-detect takes a satellite's public TLE history and returns a DataFrame o
 maneuvers — each with a detection epoch, a calibrated confidence, a maneuver type
 (in-track / cross-track / radial), and a Δv estimate. It ships a curated, reconstructable,
 labelled dataset built from public catalog data and operator maneuver announcements; a classical
-reference detector and learned (BiLSTM and transformer) baselines distributed through the Hugging
-Face Hub, all sharing a vis-viva / Gauss-variational Δv inversion; and a frozen, leak-free
-benchmark protocol — with a public leaderboard — so a new detection method can be measured against
-prior work on the same splits. See the [changelog](CHANGELOG.md) for released functionality.
+reference detector, learned (BiLSTM and transformer) baselines, and a foundation-model (Chronos
+forecast-residual) baseline distributed through the Hugging Face Hub, all sharing a
+vis-viva / Gauss-variational Δv inversion; and a frozen, leak-free benchmark protocol — with a
+public leaderboard — so a new detection method can be measured against prior work on the same
+splits. See the [changelog](CHANGELOG.md) for released functionality.
 
 ## What this is
 
@@ -53,8 +54,9 @@ runs the classical detector through the benchmark scorer on a labelled series.
 
 ## Dataset and benchmark
 
-- **Dataset** — a curated, labelled set of LEO altimetry and MEO GPS satellites, built from public
-  TLE history and operator maneuver announcements. The raw multi-year history comes from
+- **Dataset** — a curated, labelled set spanning LEO altimetry, MEO navigation (GPS and Galileo),
+  GEO, and IGSO (QZSS) satellites, built from public TLE history and operator maneuver
+  announcements. The raw multi-year history comes from
   Space-Track, whose terms do not permit redistributing the data or analysis derived from it, so the
   dataset ships as a pinned, byte-deterministic **reconstruction recipe** plus a content-hash
   manifest: you rebuild it locally from your own Space-Track account with
@@ -67,6 +69,10 @@ runs the classical detector through the benchmark scorer on a labelled series.
   Hugging Face Hub and selected by name (`detect(history, model="transformer-base")`). Each localises
   maneuvers in the element series and reuses the same Δv inversion; inference is CPU-only and pulled on
   first use.
+- **Foundation baseline** — an optional forecast-residual detector built on a pretrained time-series
+  model (Chronos), selected as `model="chronos-residual"` and installed via the `[foundation]` extra.
+  It replaces the classical detector's hand-built quiet-dynamics prior with a learned forecast and
+  reuses the same matching, Δv inversion, and scorer.
 - **Benchmark** — frozen, leak-free train / val / test splits (by satellite and time), the
   detection-matching rule, the per-class metric (precision/recall at a fixed false-alarm rate), and
   a deterministic scorer that reproduces the published numbers from a committed predictions file.

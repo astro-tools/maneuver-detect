@@ -1,15 +1,15 @@
 # Leaderboard
 
 The [public leaderboard](https://huggingface.co/spaces/astro-tools/maneuver-detect-leaderboard) runs
-the package's shipped [deterministic scorer](benchmark.md#scorer) on the **frozen v0.2 test split** and
-ranks your method against the classical, BiLSTM, and transformer baselines. You upload a
+the package's shipped [deterministic scorer](benchmark.md#scorer) on the **frozen v0.3 test split** and
+ranks your method against the classical, BiLSTM, transformer, and foundation baselines. You upload a
 `predictions.json`; it returns your per-class above-floor recall at the operating point. It is the
 hosted, zero-setup way to get a number directly comparable to prior work — the same number the
 [benchmark protocol](benchmark.md) defines.
 
 ## What kind of board this is
 
-The v0.2 test labels are part of the public CC-BY-4.0 dataset (`dataset/v0.2/labels.json` and
+The v0.3 test labels are part of the public CC-BY-4.0 dataset (`dataset/v0.3/labels.json` and
 `splits.json` commit the labels and mark the `test` objects), so the answer key is already published.
 The board is therefore a **reproducibility / convenience board**: it hosts the canonical scorer on the
 splits everyone already has, so a new method gets a directly comparable score without standing up the
@@ -23,10 +23,10 @@ that is deferred to a later release. See
 
 ## How to submit
 
-### 1. Reconstruct the v0.2 objects
+### 1. Reconstruct the v0.3 objects
 
 Run your detector over the same objects the test split scores. Reconstruct their element series from
-**your own** Space-Track account — the recipe is pinned in `dataset/v0.2/recipe.json`, and the
+**your own** Space-Track account — the recipe is pinned in `dataset/v0.3/recipe.json`, and the
 content-hash manifest verifies the rebuild byte-for-byte:
 
 ```bash
