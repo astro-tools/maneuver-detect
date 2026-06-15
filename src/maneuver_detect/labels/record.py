@@ -29,7 +29,10 @@ __all__ = [
     "SOURCE_DORIS_IDS",
     "SOURCE_GALILEO_NAGU",
     "SOURCE_GPS_NANU",
+    "SOURCE_NOAA_GOES",
+    "SOURCE_QZSS_OHI",
     "SOURCE_SELF_GEO",
+    "SOURCE_SELF_HEO",
     "ManeuverLabel",
     "OrbitClass",
     "to_frame",
@@ -43,18 +46,38 @@ SOURCE_GPS_NANU = "GPS-NANU"
 #: Source tag for the Galileo NAGU (Notice Advisory to Galileo Users) PLN_MANV maneuver notices —
 #: the second MEO operator feed (European GNSS Service Centre), epoch-only like the GPS NANUs.
 SOURCE_GALILEO_NAGU = "GALILEO-NAGU"
+#: Source tag for the QZSS Operational History Information (OHI) maneuver logs — the Cabinet Office
+#: of Japan's per-satellite executed-maneuver history, carrying actual Δv vector components
+#: (the IGSO + GEO operator-truth source). See ``labels.qzss_ohi``.
+SOURCE_QZSS_OHI = "QZSS-OHI"
+#: Source tag for NOAA GOES operator maneuver epochs from the OSPO navigation-summary / weekly-plan
+#: files — US-Government public-domain GEO operator announcements (epoch-only). See ``noaa_goes``.
+SOURCE_NOAA_GOES = "NOAA-GOES"
 #: Source tag for self-labelled GEO station-keeping epochs derived from the element series itself
 #: (longitude-drift inspection) — a **derived, best-effort** source, not an operator announcement,
-#: for the GEO class which has no public operator maneuver feed. See ``labels.longitude_shift``.
+#: for GEO objects with no public operator maneuver feed. See ``labels.longitude_shift``.
 SOURCE_SELF_GEO = "SELF-GEO"
+#: Source tag for self-labelled HEO apogee/perigee-control epochs derived from the element series
+#: itself (energy/eccentricity-step inspection) — a **derived, best-effort** source, like
+#: :data:`SOURCE_SELF_GEO`, for the HEO class which has no public operator maneuver feed. See
+#: ``labels.heo_self``.
+SOURCE_SELF_HEO = "SELF-HEO"
 
 
 class OrbitClass(str, Enum):
-    """The orbit class of a labelled object — LEO, MEO, or GEO (HEO is out of scope)."""
+    """The orbit class of a labelled object — LEO, MEO, GEO, IGSO, or HEO.
+
+    The canonical iteration order (``LEO`` → ``MEO`` → ``GEO`` → ``IGSO`` → ``HEO``) fixes the shape
+    of every per-class report (coverage, split counts, scorer), so it is part of the contract.
+    ``IGSO`` is the inclined/eccentric-geosynchronous regime (QZSS, operator-Δv); ``HEO`` is the
+    high-eccentricity apogee/perigee-control regime (self-labelled, best-effort).
+    """
 
     LEO = "LEO"
     MEO = "MEO"
     GEO = "GEO"
+    IGSO = "IGSO"
+    HEO = "HEO"
 
 
 @dataclass(frozen=True)

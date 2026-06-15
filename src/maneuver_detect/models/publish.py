@@ -107,7 +107,7 @@ def _provenance_table(metadata: dict[str, Any]) -> str:
 
 
 # Orbit classes ordered by altitude for the per-class table, with unknowns sorted last by name.
-_CLASS_ORDER = {"LEO": 0, "MEO": 1, "GEO": 2, "HEO": 3}
+_CLASS_ORDER = {"LEO": 0, "MEO": 1, "GEO": 2, "IGSO": 3, "HEO": 4}
 
 
 def _fmt_metric(value: Any) -> str:

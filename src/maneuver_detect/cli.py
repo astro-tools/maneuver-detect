@@ -397,11 +397,8 @@ def _run_dataset_build(out_dir: str, nanu_start_year: int, nanu_end_year: int | 
             report = build_dataset(dataset_recipe, fetcher, labels, out_dir)
 
     counts = dataset_recipe.per_class_counts()
-    print(
-        f"reconstructed {report.n_objects} objects "
-        f"(LEO {counts[OrbitClass.LEO]}, MEO {counts[OrbitClass.MEO]}, "
-        f"GEO {counts[OrbitClass.GEO]})"
-    )
+    per_class = ", ".join(f"{oc.value} {counts[oc]}" for oc in OrbitClass)
+    print(f"reconstructed {report.n_objects} objects ({per_class})")
     for orbit_class in OrbitClass:
         cov = report.coverage.per_class[orbit_class]
         print(

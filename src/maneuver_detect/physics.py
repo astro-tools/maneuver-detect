@@ -462,11 +462,18 @@ ORBIT_CLASS_GEO_MIN_A_KM = 35000.0
 
 
 def orbit_class_of(semi_major_axis_km: float) -> OrbitClass:
-    """The coarse orbit class (LEO / MEO / GEO) of a representative semi-major axis (km).
+    """The coarse runtime orbit class of a representative semi-major axis (km).
 
     A single seam both the detector (selecting the nominal Δv floor) and the feature layer
     (selecting per-class normalisation statistics) read, so the class boundaries are defined once.
     The cuts are :data:`ORBIT_CLASS_LEO_MAX_A_KM` and :data:`ORBIT_CLASS_GEO_MIN_A_KM`.
+
+    This returns only ``LEO`` / ``MEO`` / ``GEO`` — semi-major axis alone cannot distinguish the
+    eccentric classes (``IGSO`` is geosynchronous so it lands in ``GEO`` here; a high-``e`` ``HEO``
+    object lands wherever its ``a`` falls). The benchmark's per-class scoring uses the **pinned**
+    class from the dataset recipe, not this runtime classifier, so ``IGSO`` / ``HEO`` are still
+    scored as themselves; this seam only picks the detector's working floor / normalisation, where
+    treating them as the nearest coarse class is an accepted first-pass approximation.
     """
     if semi_major_axis_km < ORBIT_CLASS_LEO_MAX_A_KM:
         return OrbitClass.LEO
@@ -477,12 +484,17 @@ def orbit_class_of(semi_major_axis_km: float) -> OrbitClass:
 
 #: Nominal per-class detectability floor for the Δv inversion, m/s (D4/D5). LEO and GEO are the
 #: spike-measured values (LEO ~cm/s; GEO ~0.05-0.15 m/s, taken at the mid); MEO is a provisional
-#: analytical placeholder between them. The *per-object* floor is TLE-quality-dependent and is
-#: calibrated by the detector and benchmark — pass it explicitly when known; this is the default.
+#: analytical placeholder between them. IGSO mirrors GEO (geosynchronous, comparable TLE quality);
+#: HEO is an analytical placeholder (D4 left the HEO floor open). The *per-object* floor is
+#: TLE-quality-dependent and is calibrated by the detector and benchmark — pass it explicitly when
+#: known; this is the default. ``IGSO`` / ``HEO`` are present so a lookup by a pinned class never
+#: fails, even though :func:`orbit_class_of` (the runtime path) never returns them.
 DETECTABILITY_FLOOR_MS: dict[OrbitClass, float] = {
     OrbitClass.LEO: 0.01,
     OrbitClass.MEO: 0.03,
     OrbitClass.GEO: 0.10,
+    OrbitClass.IGSO: 0.10,
+    OrbitClass.HEO: 0.05,
 }
 
 

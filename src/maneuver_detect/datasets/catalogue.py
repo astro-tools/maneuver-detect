@@ -1,6 +1,6 @@
 """The dataset catalogue — the objects the recipe reconstructs, as public reference facts.
 
-Three classes (D3, extended by D13):
+Four populated classes + a reserved one (D3, extended by D13 and the v0.3 source survey):
 
 - **LEO** — the DORIS/IDS satellites that publish a ``man.txt`` maneuver file *and* have a confident
   NORAD id: the altimetry missions (the Δv-labelled core) and the SPOT imaging satellites. A few
@@ -9,9 +9,20 @@ Three classes (D3, extended by D13):
   NORAD``, labels from the NANU FCSTDV notices) and the **Galileo** constellation (``GSAT / NORAD``,
   labels from the NAGU ``PLN_MANV`` notices). Each table doubles as the source-id → NORAD crosswalk
   its label parser needs, so the dataset layer supplies the full mapping the label layer seeds.
-- **GEO** — actively station-kept geostationary satellites; with no public GEO operator maneuver
-  feed, their labels are **self-derived** from the element series by longitude-drift inspection
-  (best-effort, derived; see :mod:`maneuver_detect.labels.longitude_shift`).
+- **GEO** — geostationary satellites. The **GOES** weather satellites carry operator-announced
+  labels from the NOAA OSPO navigation summary (US-Government public domain); the Meteosat/Himawari
+  satellites have no public operator feed, so their labels are **self-derived** from the element
+  series by longitude-drift inspection (best-effort; see
+  :mod:`maneuver_detect.labels.longitude_shift`). The two equatorial **QZSS** satellites (QZS-3/6)
+  are GEO with operator-Δv OHI labels.
+- **IGSO** — the inclined/eccentric-geosynchronous **QZSS** satellites (QZS-2/4/1R), labelled from
+  the Cabinet Office of Japan's Operational History Information (OHI) files, the only surveyed
+  operator feed that ships an executed Δv (:mod:`maneuver_detect.labels.qzss_ohi`).
+- **HEO** — high-eccentricity apogee/perigee-control regime: a **reserved class with no objects** in
+  v0.3. No machine-ingestible maneuver source exists (operator records are prose/PDF or
+  ephemeris-only), and self-labelling from the noisy deep-space TLEs is perturbation-dominated, so
+  HEO is deferred (D15). The enum member and the :mod:`maneuver_detect.labels.heo_self` deriver are
+  retained for a future source.
 
 The catalogue is a **pinned snapshot**: a satellite's source-id → NORAD is fixed for its lifetime,
 while constellation membership and slot assignments drift over time, so a recipe version pins the
@@ -28,6 +39,8 @@ from maneuver_detect.labels.record import (
     SOURCE_DORIS_IDS,
     SOURCE_GALILEO_NAGU,
     SOURCE_GPS_NANU,
+    SOURCE_NOAA_GOES,
+    SOURCE_QZSS_OHI,
     SOURCE_SELF_GEO,
     OrbitClass,
 )
@@ -35,17 +48,21 @@ from maneuver_detect.labels.record import (
 __all__ = [
     "DATASET_VERSION",
     "GALILEO_CONSTELLATION",
-    "GEO_OBJECTS",
+    "GOES_OBJECTS",
     "GPS_CONSTELLATION",
+    "QZSS_CONSTELLATION",
+    "SELF_GEO_OBJECTS",
     "GalileoSatellite",
     "GpsSatellite",
+    "QzssSatellite",
     "galileo_gsat_to_norad",
+    "goes_name_to_norad",
     "gps_svn_to_norad",
     "recipe",
 ]
 
 #: The dataset version (in lockstep with a later Hub release and the manifest — D8).
-DATASET_VERSION = "0.2.0"
+DATASET_VERSION = "0.3.0"
 
 
 @dataclass(frozen=True)
@@ -182,18 +199,60 @@ GALILEO_CONSTELLATION: tuple[GalileoSatellite, ...] = (
     GalileoSatellite("GSAT0234", 67162, "GALILEO 34"),
 )
 
-# Actively station-kept geostationary satellites for the self-labelled GEO class: NORAD id + name,
-# confirmed GEO and operational against the CelesTrak SATCAT. A mix of tightly-controlled sats (the
-# GOES/Himawari weather satellites, both E-W and N-S station-keeping) and inclined-orbit ones (the
-# older Meteosat satellites, E-W only) — all with long, dense element histories.
-GEO_OBJECTS: tuple[tuple[int, str], ...] = (
-    (38552, "Meteosat-10"),
-    (40267, "Himawari-8"),
-    (40732, "Meteosat-11"),
+
+@dataclass(frozen=True)
+class QzssSatellite:
+    """One Quasi-Zenith (QZSS) satellite — its label, NORAD id, orbit class, and OHI file reference.
+
+    Attributes:
+        label: The common designation (e.g. ``"QZS-2"``), used for provenance.
+        norad_id: NORAD catalogue id.
+        orbit_class: ``IGSO`` for the inclined/eccentric-geosynchronous birds (QZS-2/4/1R) or
+            ``GEO`` for the equatorial ones (QZS-3/6) — fixed per satellite, not from elements.
+        ohi_ref: The OHI file stem the label fetch uses (``ohi-{ohi_ref}.txt``, e.g. ``"qzs2"``).
+    """
+
+    label: str
+    norad_id: int
+    orbit_class: OrbitClass
+    ohi_ref: str
+
+
+# The QZSS constellation from the CelesTrak SATCAT, classed by orbit geometry: QZS-2/4/1R
+# are inclined/eccentric geosynchronous (e~0.075, i~37-44 deg) -> IGSO; QZS-3/6 equatorial -> GEO.
+# The decommissioned QZS-1 (drifted off-station) is left out. Each carries an OHI maneuver log.
+QZSS_CONSTELLATION: tuple[QzssSatellite, ...] = (
+    QzssSatellite("QZS-2", 42738, OrbitClass.IGSO, "qzs2"),
+    QzssSatellite("QZS-4", 42965, OrbitClass.IGSO, "qzs4"),
+    QzssSatellite("QZS-1R", 49336, OrbitClass.IGSO, "qzs1r"),
+    QzssSatellite("QZS-3", 42917, OrbitClass.GEO, "qzs3"),
+    QzssSatellite("QZS-6", 62876, OrbitClass.GEO, "qzs6"),
+)
+
+# The GOES weather satellites with operator-announced labels from the NOAA OSPO navigation summary
+# (US-Government public domain): NORAD id + the navsum spacecraft name (the crosswalk key). All
+# confirmed GEO against the CelesTrak SATCAT, with long, dense element histories.
+GOES_OBJECTS: tuple[tuple[int, str], ...] = (
     (41866, "GOES-16"),
     (43226, "GOES-17"),
     (51850, "GOES-18"),
+    (60133, "GOES-19"),
 )
+
+# Station-kept geostationary satellites with no public operator maneuver feed, for the self-labelled
+# GEO track: NORAD id + name, confirmed GEO against the CelesTrak SATCAT. The Himawari weather
+# satellite (E-W + N-S station-keeping) and the inclined-orbit older Meteosat satellites (E-W only).
+SELF_GEO_OBJECTS: tuple[tuple[int, str], ...] = (
+    (38552, "Meteosat-10"),
+    (40267, "Himawari-8"),
+    (40732, "Meteosat-11"),
+)
+
+# HEO (high-eccentricity) is a reserved class with no objects in v0.3: there is no ingestible HEO
+# maneuver source (operator feeds are prose/PDF or ephemeris-only — re-deriving maneuvers from
+# ephemeris is circular), and self-labelling from the noisy deep-space TLEs of HEO objects measured
+# as perturbation-dominated, not maneuvers. So no HEO objects are catalogued; the class, the floor
+# entry, and the ``labels.heo_self`` deriver are retained for a future source. See D15 + the spike.
 
 
 def gps_svn_to_norad() -> dict[str, int]:
@@ -204,6 +263,11 @@ def gps_svn_to_norad() -> dict[str, int]:
 def galileo_gsat_to_norad() -> dict[str, int]:
     """The ``GSAT → NORAD`` crosswalk (the NAGU parser's ``gsat_to_norad``)."""
     return {sat.gsat: sat.norad_id for sat in GALILEO_CONSTELLATION}
+
+
+def goes_name_to_norad() -> dict[str, int]:
+    """The navsum ``GOES-N → NORAD`` crosswalk (the NOAA GOES parser's ``goes_name_to_norad``)."""
+    return {name: norad_id for norad_id, name in GOES_OBJECTS}
 
 
 def _base_entries() -> list[RecipeEntry]:
@@ -248,8 +312,38 @@ def _galileo_entries() -> list[RecipeEntry]:
     ]
 
 
-def _geo_entries() -> list[RecipeEntry]:
-    """The GEO entries — labels self-derived from the series (``label_ref=""``)."""
+def _qzss_entries() -> list[RecipeEntry]:
+    """The QZSS entries — IGSO + GEO, operator-Δv OHI labels (``label_ref`` = the OHI file stem)."""
+    return [
+        RecipeEntry(
+            norad_id=sat.norad_id,
+            orbit_class=sat.orbit_class,
+            object_name=f"QZSS {sat.label}",
+            catalogue_source="spacetrack",
+            label_source=SOURCE_QZSS_OHI,
+            label_ref=sat.ohi_ref,
+        )
+        for sat in QZSS_CONSTELLATION
+    ]
+
+
+def _goes_entries() -> list[RecipeEntry]:
+    """The GOES GEO entries — NOAA navsum labels (``label_ref`` = the navsum spacecraft name)."""
+    return [
+        RecipeEntry(
+            norad_id=norad_id,
+            orbit_class=OrbitClass.GEO,
+            object_name=name,
+            catalogue_source="spacetrack",
+            label_source=SOURCE_NOAA_GOES,
+            label_ref=name,
+        )
+        for norad_id, name in GOES_OBJECTS
+    ]
+
+
+def _self_geo_entries() -> list[RecipeEntry]:
+    """The self-labelled GEO entries — labels derived from the series (``label_ref=""``)."""
     return [
         RecipeEntry(
             norad_id=norad_id,
@@ -259,19 +353,27 @@ def _geo_entries() -> list[RecipeEntry]:
             label_source=SOURCE_SELF_GEO,
             label_ref="",
         )
-        for norad_id, name in GEO_OBJECTS
+        for norad_id, name in SELF_GEO_OBJECTS
     ]
 
 
 def recipe(dataset_version: str = DATASET_VERSION) -> Recipe:
     """The pinned reconstruction recipe — every catalogue object and its fetch/label parameters.
 
-    Three classes: the LEO altimetry (DORIS/IDS) set, the MEO constellations (GPS NANU + Galileo
-    NAGU labels), and the actively station-kept GEO satellites (labels self-derived from the series
-    by longitude-drift inspection). Every object fetches its multi-year series from Space-Track;
-    entries are ordered by NORAD id for a stable serialisation.
+    Four populated classes: the LEO altimetry (DORIS/IDS) set; the MEO constellations (GPS NANU +
+    Galileo NAGU labels); the GEO satellites (GOES from the NOAA navsum, QZS-3/6 from QZSS OHI,
+    Meteosat/Himawari self-derived by longitude-drift); and the IGSO QZSS satellites (operator-Δv
+    OHI labels). HEO is a reserved class with no objects (no ingestible maneuver source — see D15).
+    Every object fetches its multi-year series from Space-Track; entries are ordered by NORAD id for
+    a stable serialisation.
     """
-    entries = _base_entries() + _galileo_entries() + _geo_entries()
+    entries = (
+        _base_entries()
+        + _galileo_entries()
+        + _qzss_entries()
+        + _goes_entries()
+        + _self_geo_entries()
+    )
     return Recipe(
         dataset_version=dataset_version,
         entries=tuple(sorted(entries, key=lambda entry: entry.norad_id)),

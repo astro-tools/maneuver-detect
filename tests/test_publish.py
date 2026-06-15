@@ -268,6 +268,17 @@ def test_build_dataset_card_has_frontmatter_and_minor_dir() -> None:
     assert "recipe-first" in card.lower()
 
 
+def test_build_dataset_card_documents_v03_classes_and_source_terms() -> None:
+    card = build_dataset_card("0.3.0")
+    assert "dataset/v0.3" in card
+    # The five-class scope, including the v0.3 additions.
+    assert "**IGSO**" in card and "**HEO**" in card
+    # The new source attributions stack under CC-BY-4.0.
+    assert "NOAA" in card  # GOES navsum, US-Government public domain
+    assert "Quasi-Zenith Satellite System website" in card  # QZSS reuse attribution
+    assert "© EU" in card  # Galileo NAGU attribution carried forward
+
+
 def test_cli_dataset_publish_defaults_dir_and_version(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

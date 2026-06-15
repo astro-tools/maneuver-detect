@@ -6,7 +6,8 @@ composes the layers already built: fetch the series (via any
 fake in tests), clean and assemble it into the mean-element series (the data layer), attach that
 object's maneuver labels onto the inter-elset gaps (the label layer), and digest the series for the
 manifest. The result
-is the in-memory v0.1 labelled dataset (local reconstruction; the Hub upload is a later milestone).
+is the in-memory labelled dataset (local reconstruction, published to the Hub by the dataset
+publisher).
 
 :func:`verify` reconstructs and compares the fresh per-series digests against a pinned
 :class:`~maneuver_detect.datasets.manifest.Manifest` — the byte-for-byte integrity check that makes
@@ -26,6 +27,7 @@ from maneuver_detect.data.clean import clean_elsets
 from maneuver_detect.data.history import assemble
 from maneuver_detect.datasets.manifest import Manifest, SeriesDigest, series_sha256
 from maneuver_detect.datasets.recipe import Recipe
+from maneuver_detect.labels.heo_self import derive_heo_labels
 from maneuver_detect.labels.labeller import (
     CoverageReport,
     LabelledInterval,
@@ -33,7 +35,12 @@ from maneuver_detect.labels.labeller import (
     label_series,
 )
 from maneuver_detect.labels.longitude_shift import derive_geo_labels
-from maneuver_detect.labels.record import SOURCE_SELF_GEO, ManeuverLabel, OrbitClass
+from maneuver_detect.labels.record import (
+    SOURCE_SELF_GEO,
+    SOURCE_SELF_HEO,
+    ManeuverLabel,
+    OrbitClass,
+)
 
 __all__ = ["LabelledDataset", "ObjectDataset", "reconstruct", "verify"]
 
@@ -66,7 +73,7 @@ class ObjectDataset:
 
 @dataclass(frozen=True)
 class LabelledDataset:
-    """The reconstructed v0.1 labelled dataset.
+    """The reconstructed labelled dataset.
 
     Attributes:
         dataset_version: The dataset version reconstructed (carried into the manifest).
@@ -119,14 +126,17 @@ def reconstruct(
         series = assemble(cleaned)
         # Scope the object's labels to the same epoch window the series was fetched in (the same
         # inclusive bounds, via the shared range helpers), so a label that falls outside the window
-        # never enters the committed label set or the coverage report. The self-labelled GEO source
-        # carries no external file — its station-keeping labels are derived from the cleaned series
-        # here (deterministic, so the committed labels reproduce byte-for-byte).
+        # never enters the committed label set or the coverage report. The self-labelled GEO and HEO
+        # sources carry no external file — their station-keeping / apogee-perigee-control labels are
+        # derived from the cleaned series here (deterministic, so the committed labels reproduce
+        # byte-for-byte).
         lo, hi = normalise_range(entry.start, entry.end)
         if entry.label_source == SOURCE_SELF_GEO:
             candidate_labels: Sequence[ManeuverLabel] = derive_geo_labels(
                 series, norad_id=entry.norad_id
             )
+        elif entry.label_source == SOURCE_SELF_HEO:
+            candidate_labels = derive_heo_labels(series, norad_id=entry.norad_id)
         else:
             candidate_labels = labels_by_norad.get(entry.norad_id, [])
         obj_labels = [label for label in candidate_labels if in_range(label.epoch, lo, hi)]
