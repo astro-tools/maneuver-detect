@@ -378,7 +378,10 @@ def _committed_splits_text() -> str:
 
 def test_temporal_split_reproduces_frozen_artifact() -> None:
     # The committed splits.json is make_temporal_split on the committed labels, byte-for-byte (D8).
-    assert make_temporal_split(_committed_labels()).to_json() == _committed_splits_text()
+    # The frozen artifact under test is the v0.2 one, so the version is pinned to it rather than the
+    # package's current DATASET_VERSION default.
+    rebuilt = make_temporal_split(_committed_labels(), dataset_version="0.2.0")
+    assert rebuilt.to_json() == _committed_splits_text()
 
 
 def test_frozen_artifact_round_trips() -> None:
@@ -387,12 +390,15 @@ def test_frozen_artifact_round_trips() -> None:
 
 
 def test_frozen_split_is_non_degenerate() -> None:
-    # Every class lands in every partition — the balance the overlap split can't reach on dense GEO.
+    # Every class present in the dataset lands in every partition — the balance the overlap split
+    # can't reach on dense GEO. The committed v0.2 labels cover LEO/MEO/GEO (IGSO/HEO arrive in the
+    # v0.3 dataset), so the target is the classes actually in the data, not the whole enum.
     labels = _committed_labels()
+    dataset_classes = {label.orbit_class for label in labels}
     grouped = make_temporal_split(labels).assign(labels)
     for name in SplitName:
         present = {label.orbit_class for label in grouped[name]}
-        assert present == set(OrbitClass), f"{name.value} missing {set(OrbitClass) - present}"
+        assert present == dataset_classes, f"{name.value} missing {dataset_classes - present}"
 
 
 # --- temporal-holdout split: leak-free + byte-stable on the real dataset --------------------------

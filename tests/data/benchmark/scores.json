@@ -60,6 +60,116 @@
       "recall_ci": null,
       "sat_years": 0.5
     },
+    "HEO": {
+      "ci_level": 0.95,
+      "confusion": {
+        "cross-track": {
+          "cross-track": 0,
+          "in-track": 0,
+          "radial": 0
+        },
+        "in-track": {
+          "cross-track": 0,
+          "in-track": 0,
+          "radial": 0
+        },
+        "radial": {
+          "cross-track": 0,
+          "in-track": 0,
+          "radial": 0
+        }
+      },
+      "full_population_recall": null,
+      "n_detections": 0,
+      "n_labels_above_floor": 0,
+      "n_labels_total": 0,
+      "n_objects": 0,
+      "operating_point": 1.0,
+      "orbit_class": "HEO",
+      "pr_curve": [
+        {
+          "fa_per_sat_year": 0.3,
+          "precision": null,
+          "precision_ci": null,
+          "recall": null,
+          "recall_ci": null
+        },
+        {
+          "fa_per_sat_year": 1.0,
+          "precision": null,
+          "precision_ci": null,
+          "recall": null,
+          "recall_ci": null
+        },
+        {
+          "fa_per_sat_year": 3.0,
+          "precision": null,
+          "precision_ci": null,
+          "recall": null,
+          "recall_ci": null
+        }
+      ],
+      "precision": null,
+      "precision_ci": null,
+      "recall": null,
+      "recall_ci": null,
+      "sat_years": 0.0
+    },
+    "IGSO": {
+      "ci_level": 0.95,
+      "confusion": {
+        "cross-track": {
+          "cross-track": 0,
+          "in-track": 0,
+          "radial": 0
+        },
+        "in-track": {
+          "cross-track": 0,
+          "in-track": 0,
+          "radial": 0
+        },
+        "radial": {
+          "cross-track": 0,
+          "in-track": 0,
+          "radial": 0
+        }
+      },
+      "full_population_recall": null,
+      "n_detections": 0,
+      "n_labels_above_floor": 0,
+      "n_labels_total": 0,
+      "n_objects": 0,
+      "operating_point": 1.0,
+      "orbit_class": "IGSO",
+      "pr_curve": [
+        {
+          "fa_per_sat_year": 0.3,
+          "precision": null,
+          "precision_ci": null,
+          "recall": null,
+          "recall_ci": null
+        },
+        {
+          "fa_per_sat_year": 1.0,
+          "precision": null,
+          "precision_ci": null,
+          "recall": null,
+          "recall_ci": null
+        },
+        {
+          "fa_per_sat_year": 3.0,
+          "precision": null,
+          "precision_ci": null,
+          "recall": null,
+          "recall_ci": null
+        }
+      ],
+      "precision": null,
+      "precision_ci": null,
+      "recall": null,
+      "recall_ci": null,
+      "sat_years": 0.0
+    },
     "LEO": {
       "ci_level": 0.95,
       "confusion": {

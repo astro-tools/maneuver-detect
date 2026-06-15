@@ -105,7 +105,7 @@ def _thresholds_table(class_thresholds: dict[str, float]) -> str:
     """The calibrated per-class residual-z operating point as a markdown table (or a note)."""
     if not class_thresholds:
         return "_No per-class thresholds were calibrated into this bundle._"
-    order = {"LEO": 0, "MEO": 1, "GEO": 2, "HEO": 3}
+    order = {"LEO": 0, "MEO": 1, "GEO": 2, "IGSO": 3, "HEO": 4}
     rows = "\n".join(
         f"| {key} | {class_thresholds[key]:.2f} |"
         for key in sorted(class_thresholds, key=lambda k: (order.get(k, 99), k))

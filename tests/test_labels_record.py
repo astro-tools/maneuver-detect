@@ -10,6 +10,12 @@ import pytest
 from maneuver_detect.labels.record import (
     COLUMNS,
     SOURCE_DORIS_IDS,
+    SOURCE_GALILEO_NAGU,
+    SOURCE_GPS_NANU,
+    SOURCE_NOAA_GOES,
+    SOURCE_QZSS_OHI,
+    SOURCE_SELF_GEO,
+    SOURCE_SELF_HEO,
     ManeuverLabel,
     OrbitClass,
     to_frame,
@@ -35,6 +41,31 @@ def _label(**overrides: object) -> ManeuverLabel:
     }
     fields.update(overrides)
     return ManeuverLabel(**fields)  # type: ignore[arg-type]
+
+
+def test_orbit_class_canonical_order() -> None:
+    # The iteration order is the frozen per-class report shape (coverage / splits / scorer).
+    assert [oc.value for oc in OrbitClass] == ["LEO", "MEO", "GEO", "IGSO", "HEO"]
+
+
+def test_source_tags_are_distinct() -> None:
+    sources = {
+        SOURCE_DORIS_IDS,
+        SOURCE_GPS_NANU,
+        SOURCE_GALILEO_NAGU,
+        SOURCE_QZSS_OHI,
+        SOURCE_NOAA_GOES,
+        SOURCE_SELF_GEO,
+        SOURCE_SELF_HEO,
+    }
+    assert len(sources) == 7  # every source tag is unique
+
+
+def test_igso_and_heo_labels_construct() -> None:
+    assert (
+        _label(orbit_class=OrbitClass.IGSO, source=SOURCE_QZSS_OHI).orbit_class is OrbitClass.IGSO
+    )
+    assert _label(orbit_class=OrbitClass.HEO, source=SOURCE_SELF_HEO).orbit_class is OrbitClass.HEO
 
 
 def test_construct_and_defaults() -> None:
