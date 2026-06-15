@@ -3,7 +3,7 @@
 **Status:** findings + recommendation, extending the V2 survey
 ([`v2-label-sources.md`](v2-label-sources.md)) and its first follow-up
 ([`v2-followup-label-sources.md`](v2-followup-label-sources.md)), feeding **D15** (the ratified v0.3
-label-source set + the IGSO/HEO class additions), with knock-ons to **D3** (class scope), **D4**
+label-source set + the IGSO class addition, HEO deferred), with knock-ons to **D3** (class scope), **D4**
 (detectability floor), and **D9** (licence inheritance). This is the source survey the v0.3
 dataset-growth pass is blocked on. Engineering survey of public sources and their terms — **not legal
 advice**; the org owner ratifies the set.
@@ -41,7 +41,7 @@ JS-only portal, no signed/session-bound API). Companion proof:
 | **QZSS OHI** (Cabinet Office of Japan) | **IGSO + GEO** | start/end UTC + duration + Δv vector | **yes** | qzss.go.jp, **no-auth**, per-satellite `.txt` (`ohi-qzsN.txt`) | **CC-BY-4.0** ("Source: Quasi-Zenith Satellite System website") | 5 sats (QZS-2/4/1R IGSO + QZS-3/6 GEO), ~2–4 maneuver campaigns/sat/yr since 2017 |
 | **NOAA GOES navsum** (NOAA OSPO) | GEO | last-maneuver day (`yy/ddd`) | no | ospo.noaa.gov, **no-auth**, live `navsum.txt`; history via Internet Archive | **US-Government public domain** | 4 GOES birds; one latest-maneuver epoch per snapshot, history by replaying archive snapshots |
 | **Galileo NAGU — `PLN_MANV`** (GSC) | MEO | start/end UTC + GSAT id | no | gsc-europa.eu, no-auth, per-notice `.txt`, archive to 2016 | © EU reuse-with-attribution | full back-catalogue; Galileo station-keeps rarely, so the count stays modest |
-| **Self-labelled HEO** (element series) | **HEO** | epoch / Δa, Δe step | no | derived/self-labelled | n/a (authored) | best-effort, per-object (XMM-Newton, INTEGRAL, TESS) |
+| ~~Self-labelled HEO~~ (element series) | HEO | epoch / Δa, Δe step | no | derived/self-labelled | n/a (authored) | **rejected** — perturbation-dominated on noisy deep-space TLEs (XMM 213/26 yr vs ~1–2 real/yr); no maneuver/noise separation |
 | BeiDou NABU (CSNO TARC) | GEO/IGSO/MEO | — | — | csno-tarc.cn **JS-only SPA**, no server-rendered notices; no maneuver semantics | no open licence | **EXCLUDED** — uncrawlable + not a maneuver feed |
 | GLONASS (IAC/TsNIIMash) | MEO | — | — | glonass-iac.ru | reproduction capped at **150 chars** | **EXCLUDED** — terms forbid even a recipe |
 | EUMETSAT (Meteosat) notices | GEO | minute-precise window | no | login/JS-gated mailing list | restrictive data policy | **EXCLUDED** — not headlessly ingestible + redistribution-restricted |
@@ -99,19 +99,31 @@ fetched verbatim with the `id_` modifier and parsed) and deduplicating the `(sat
 The GOES birds move from self-labelled to **operator-announced** (epoch-only); Meteosat/Himawari, with
 no public feed, stay self-labelled.
 
-### HEO — no operator feed exists; self-labelling is the path
+### HEO — no usable source exists; the class is deferred
 
-The headline negative result: **no licence-clean, headless-ingestible, true-HEO operator maneuver feed
-exists.** Verified dead ends — science HEO (XMM-Newton e≈0.8 / apogee 92 000 km, INTEGRAL apogee
-145 000 km) maneuvers are documented only in ESA/NASA prose pages and are rare (XMM: ~one orbit
-correction in 25 years); Molniya/Tundra comms and Russian early-warning HEO are operator-silent; the
-ILRS maneuver page re-points almost entirely to LEO DORIS targets already in the set, plus QZSS. So
-HEO is populated **best-effort by self-labelling** — an energy/eccentricity-step deriver
-(`heo_self.derive_heo_labels`), the GEO longitude-shift analogue, with the **same circularity caveat**
-(the in-track `a`-channel overlaps the detector's trigger), so HEO is a separately-reported, flagged
-class, not folded into headline recall. The chosen objects are genuinely high-e, geocentric, and
-SGP4-tractable, and do maneuver: **XMM-Newton (25989), INTEGRAL (27540), TESS (43435)**. Spektr-RG is
-excluded — it orbits Sun-Earth L2, which SGP4 cannot model.
+The headline negative result: **no machine-ingestible HEO orbit-maneuver source exists — not even
+credentialed.** The first survey ruled out licence-clean/headless feeds; a second pass relaxed the
+constraint to *any* credentialed/registration-gated source and still came up empty. Verified dead
+ends: science HEO (XMM-Newton, INTEGRAL) maneuvers are documented only in ESA/NASA **prose/PDF**;
+**ESA SPICE SPKs** and archive auxiliary data are continuous **ephemeris** (re-deriving maneuvers is
+circular); **Space-Track**'s `maneuver` class is operator-panel *predicted* notices (wrong scope,
+won't include science HEO); **ESA DISCOS** has no maneuver entity; academic sets (MaDDG,
+SpaceTrack-TimeSeries) are synthetic or unverified/NC. The only ingestible exception — **TESS
+`QUALITY`-flag reaction-wheel desaturations** (MAST FITS) — is attitude-control momentum dumps
+(~100+/yr, TESS-only), not orbit-control burns.
+
+**Self-labelling does not rescue HEO either.** An energy/eccentricity-step deriver
+(`heo_self.derive_heo_labels`, the GEO longitude-shift analogue) was implemented and run on the
+credentialed reconstruction: on the noisy deep-space HEO TLEs it is **perturbation-dominated**, not
+maneuver-driven — XMM-Newton gave 213 "maneuvers" over 26 yr, INTEGRAL 340 over 24 yr (vs. ~1–2 real
+maneuvers/yr), TESS TLEs are too noisy to use (median per-gap Δa ≈ 2821 km), and there is no clean
+maneuver-vs-noise separation at any threshold (luni-solar perturbations near perigee produce real
+`a`/`e` swings indistinguishable from burns in TLEs).
+
+**Conclusion: HEO is deferred** — a reserved `OrbitClass` member with **no objects** in v0.3. The
+deriver, the enum member, and the floor entry are retained for a future source. **IGSO (QZSS
+operator-Δv) is the v0.3 new scored class instead.** (Spektr-RG was also ruled out as an HEO object —
+it orbits Sun-Earth L2, which SGP4 cannot model.)
 
 ## Recommendation (ratified as D15)
 
@@ -121,8 +133,9 @@ excluded — it orbits Sun-Earth L2, which SGP4 cannot model.
    the GOES birds; Meteosat/Himawari stay self-labelled.
 3. **MEO:** crawl the **Galileo NAGU** back-catalogue (2016→present); modest gain (Galileo rarely
    station-keeps), so QZSS is the real near-GEO thickener.
-4. **HEO:** add it as a **self-labelled, best-effort** class (XMM-Newton, INTEGRAL, TESS) — the only
-   viable path, reported separately.
+4. **HEO:** **deferred** — no machine-ingestible maneuver source exists (even credentialed) and
+   self-labelling measured as perturbation noise on the credentialed run, so HEO ships as a reserved
+   class with no objects; IGSO (QZSS operator-Δv) is the new scored class instead.
 5. **Dead ends:** BeiDou (uncrawlable + no maneuver semantics), GLONASS (terms), EUMETSAT (gated), and
    true-HEO operator feeds (none) — documented, not papered over.
 

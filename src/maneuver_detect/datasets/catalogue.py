@@ -1,6 +1,6 @@
 """The dataset catalogue — the objects the recipe reconstructs, as public reference facts.
 
-Five classes (D3, extended by D13 and the v0.3 source survey):
+Four populated classes + a reserved one (D3, extended by D13 and the v0.3 source survey):
 
 - **LEO** — the DORIS/IDS satellites that publish a ``man.txt`` maneuver file *and* have a confident
   NORAD id: the altimetry missions (the Δv-labelled core) and the SPOT imaging satellites. A few
@@ -18,9 +18,11 @@ Five classes (D3, extended by D13 and the v0.3 source survey):
 - **IGSO** — the inclined/eccentric-geosynchronous **QZSS** satellites (QZS-2/4/1R), labelled from
   the Cabinet Office of Japan's Operational History Information (OHI) files, the only surveyed
   operator feed that ships an executed Δv (:mod:`maneuver_detect.labels.qzss_ohi`).
-- **HEO** — high-eccentricity apogee/perigee-control objects (XMM-Newton, INTEGRAL, TESS). No public
-  operator feed covers HEO, so labels are **self-derived** from the series (best-effort; see
-  :mod:`maneuver_detect.labels.heo_self`).
+- **HEO** — high-eccentricity apogee/perigee-control regime: a **reserved class with no objects** in
+  v0.3. No machine-ingestible maneuver source exists (operator records are prose/PDF or
+  ephemeris-only), and self-labelling from the noisy deep-space TLEs is perturbation-dominated, so
+  HEO is deferred (D15). The enum member and the :mod:`maneuver_detect.labels.heo_self` deriver are
+  retained for a future source.
 
 The catalogue is a **pinned snapshot**: a satellite's source-id → NORAD is fixed for its lifetime,
 while constellation membership and slot assignments drift over time, so a recipe version pins the
@@ -40,7 +42,6 @@ from maneuver_detect.labels.record import (
     SOURCE_NOAA_GOES,
     SOURCE_QZSS_OHI,
     SOURCE_SELF_GEO,
-    SOURCE_SELF_HEO,
     OrbitClass,
 )
 
@@ -49,7 +50,6 @@ __all__ = [
     "GALILEO_CONSTELLATION",
     "GOES_OBJECTS",
     "GPS_CONSTELLATION",
-    "HEO_OBJECTS",
     "QZSS_CONSTELLATION",
     "SELF_GEO_OBJECTS",
     "GalileoSatellite",
@@ -248,16 +248,11 @@ SELF_GEO_OBJECTS: tuple[tuple[int, str], ...] = (
     (40732, "Meteosat-11"),
 )
 
-# High-eccentricity (HEO) apogee/perigee-control objects for the self-labelled HEO class: NORAD id +
-# name, confirmed against the CelesTrak SATCAT as genuinely high-e, geocentric, SGP4-tractable, and
-# known to maneuver. XMM-Newton (apo ~92 000 km / per ~29 000 km) and INTEGRAL (apo ~145 000 km /
-# per ~4 000 km, perigee-raised in disposal prep) are ESA science HEO; TESS is a 2:1 lunar-resonant
-# high orbit with periodic perigee management. No operator maneuver feed exists for any of them.
-HEO_OBJECTS: tuple[tuple[int, str], ...] = (
-    (25989, "XMM-Newton"),
-    (27540, "INTEGRAL"),
-    (43435, "TESS"),
-)
+# HEO (high-eccentricity) is a reserved class with no objects in v0.3: there is no ingestible HEO
+# maneuver source (operator feeds are prose/PDF or ephemeris-only — re-deriving maneuvers from
+# ephemeris is circular), and self-labelling from the noisy deep-space TLEs of HEO objects measured
+# as perturbation-dominated, not maneuvers. So no HEO objects are catalogued; the class, the floor
+# entry, and the ``labels.heo_self`` deriver are retained for a future source. See D15 + the spike.
 
 
 def gps_svn_to_norad() -> dict[str, int]:
@@ -362,29 +357,15 @@ def _self_geo_entries() -> list[RecipeEntry]:
     ]
 
 
-def _heo_entries() -> list[RecipeEntry]:
-    """The HEO entries — labels self-derived from the series (``label_ref=""``)."""
-    return [
-        RecipeEntry(
-            norad_id=norad_id,
-            orbit_class=OrbitClass.HEO,
-            object_name=name,
-            catalogue_source="spacetrack",
-            label_source=SOURCE_SELF_HEO,
-            label_ref="",
-        )
-        for norad_id, name in HEO_OBJECTS
-    ]
-
-
 def recipe(dataset_version: str = DATASET_VERSION) -> Recipe:
     """The pinned reconstruction recipe — every catalogue object and its fetch/label parameters.
 
-    Five classes: the LEO altimetry (DORIS/IDS) set; the MEO constellations (GPS NANU + Galileo NAGU
-    labels); the GEO satellites (GOES from the NOAA navsum, QZS-3/6 from QZSS OHI, Meteosat/Himawari
-    self-derived by longitude-drift); the IGSO QZSS satellites (operator-Δv OHI labels); and the HEO
-    objects (self-derived by apogee/perigee-control inspection). Every object fetches its multi-year
-    series from Space-Track; entries are ordered by NORAD id for a stable serialisation.
+    Four populated classes: the LEO altimetry (DORIS/IDS) set; the MEO constellations (GPS NANU +
+    Galileo NAGU labels); the GEO satellites (GOES from the NOAA navsum, QZS-3/6 from QZSS OHI,
+    Meteosat/Himawari self-derived by longitude-drift); and the IGSO QZSS satellites (operator-Δv
+    OHI labels). HEO is a reserved class with no objects (no ingestible maneuver source — see D15).
+    Every object fetches its multi-year series from Space-Track; entries are ordered by NORAD id for
+    a stable serialisation.
     """
     entries = (
         _base_entries()
@@ -392,7 +373,6 @@ def recipe(dataset_version: str = DATASET_VERSION) -> Recipe:
         + _qzss_entries()
         + _goes_entries()
         + _self_geo_entries()
-        + _heo_entries()
     )
     return Recipe(
         dataset_version=dataset_version,

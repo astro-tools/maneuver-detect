@@ -112,10 +112,11 @@ maneuver-detect dataset build --out dataset/v{minor}
 - **GEO** — geostationary satellites: the GOES weather satellites carry operator-announced labels
   from the NOAA OSPO navigation summary, the QZS-3/6 satellites carry QZSS OHI operator Δv, and the
   Meteosat/Himawari satellites are self-labelled by longitude-drift inspection (best-effort).
-- **IGSO** — the inclined/eccentric-geosynchronous QZSS satellites (QZS-2/4/1R), with executed-Δv
-  labels from the Cabinet Office of Japan's Operational History Information (OHI) files.
-- **HEO** — high-eccentricity apogee/perigee-control objects (XMM-Newton, INTEGRAL, TESS),
-  self-labelled from the element series (best-effort, epoch-only).
+- **IGSO** — the inclined/eccentric-geosynchronous QZSS satellites (QZS-2/4/1R), new in v0.3, with
+  executed-Δv labels from the Cabinet Office of Japan's Operational History Information (OHI) files.
+- **HEO** — the high-eccentricity regime is a reserved class with no objects yet: no ingestible
+  maneuver source exists and self-labelling on deep-space TLEs is perturbation-dominated, so it is
+  deferred to a future source.
 
 ## Licence
 

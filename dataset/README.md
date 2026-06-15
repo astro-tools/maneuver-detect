@@ -39,10 +39,12 @@ reconstruction run (below), because computing a real content hash requires fetch
   `maneuver_detect.labels.longitude_shift`).
 - **IGSO** — the inclined/eccentric-geosynchronous **QZSS** satellites (QZS-2/4/1R), labelled from
   the Cabinet Office of Japan's Operational History Information (OHI) files — the only surveyed
-  operator feed that ships an executed Δv (see `maneuver_detect.labels.qzss_ohi`).
-- **HEO** — high-eccentricity apogee/perigee-control objects (XMM-Newton, INTEGRAL, TESS). No public
-  operator feed covers HEO, so their labels are **self-derived** from the element series by
-  energy/eccentricity-step inspection (best-effort, epoch-only — see `maneuver_detect.labels.heo_self`).
+  operator feed that ships an executed Δv (see `maneuver_detect.labels.qzss_ohi`). This is the new
+  class introduced in v0.3.
+- **HEO** — the high-eccentricity apogee/perigee-control regime is a **reserved class with no objects**
+  in v0.3. No machine-ingestible maneuver source exists for it (operator records are prose/PDF or
+  ephemeris-only), and self-labelling from the noisy deep-space TLEs of HEO objects is
+  perturbation-dominated rather than maneuver-driven, so it is deferred to a future source.
 
 ## Reconstructing / verifying
 

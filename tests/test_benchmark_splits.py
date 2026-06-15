@@ -37,6 +37,11 @@ _DATA_DIR = Path(__file__).resolve().parents[1] / "dataset" / "v0.2"
 _LABELS_PATH = _DATA_DIR / "labels.json"
 _SPLITS_PATH = _DATA_DIR / "splits.json"
 
+# The current (v0.3) frozen artifacts — the release this PR ships.
+_V03_DIR = Path(__file__).resolve().parents[1] / "dataset" / "v0.3"
+_V03_LABELS_PATH = _V03_DIR / "labels.json"
+_V03_SPLITS_PATH = _V03_DIR / "splits.json"
+
 #: The D4 ±1-adjacent-gap nominal matching tolerance; the temporal split's guard comfortably exceeds
 #: it, so the envelope-overlap sweep is a faithful check of the matching-leak vector.
 _MATCH_TOL = timedelta(days=2)
@@ -418,6 +423,38 @@ def test_temporal_split_is_leak_free_on_real_data() -> None:
 def test_temporal_split_is_byte_stable_on_real_data() -> None:
     labels = _committed_labels()
     assert make_temporal_split(labels).to_json() == make_temporal_split(labels).to_json()
+
+
+# --- v0.3 frozen artifacts: the release this PR ships ---------------------------------------------
+
+
+def _v03_labels() -> list[ManeuverLabel]:
+    return labels_from_json(_V03_LABELS_PATH.read_text(encoding="utf-8"))
+
+
+def test_v03_temporal_split_reproduces_frozen_artifact() -> None:
+    # The committed v0.3 splits.json is make_temporal_split on the committed v0.3 labels, byte-exact
+    # (D8). The version stamp comes from the package default (0.3.0), matching the artifact.
+    rebuilt = make_temporal_split(_v03_labels())
+    assert rebuilt.to_json() == _V03_SPLITS_PATH.read_text(encoding="utf-8")
+
+
+def test_v03_split_is_leak_free_and_non_degenerate() -> None:
+    labels = _v03_labels()
+    split = TemporalSplit.from_json(_V03_SPLITS_PATH.read_text(encoding="utf-8"))
+    # Satellite axis: object sets pairwise disjoint.
+    assert split.train & split.val == frozenset()
+    assert split.train & split.test == frozenset()
+    assert split.val & split.test == frozenset()
+    # Temporal axis: no match envelope crosses a partition.
+    grouped = split.assign(labels)
+    _assert_no_cross_partition_envelope_overlap(grouped)
+    # Every populated class (LEO/MEO/GEO/IGSO; HEO is reserved/empty) lands in every partition.
+    dataset_classes = {label.orbit_class for label in labels}
+    assert OrbitClass.IGSO in dataset_classes and OrbitClass.HEO not in dataset_classes
+    for name in SplitName:
+        present = {label.orbit_class for label in grouped[name]}
+        assert present == dataset_classes, f"{name.value} missing {dataset_classes - present}"
 
 
 def test_temporal_other_seed_is_still_leak_free() -> None:

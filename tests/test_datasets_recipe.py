@@ -8,7 +8,6 @@ from maneuver_detect.datasets.catalogue import (
     GALILEO_CONSTELLATION,
     GOES_OBJECTS,
     GPS_CONSTELLATION,
-    HEO_OBJECTS,
     QZSS_CONSTELLATION,
     SELF_GEO_OBJECTS,
     galileo_gsat_to_norad,
@@ -24,7 +23,6 @@ from maneuver_detect.labels.record import (
     SOURCE_NOAA_GOES,
     SOURCE_QZSS_OHI,
     SOURCE_SELF_GEO,
-    SOURCE_SELF_HEO,
     OrbitClass,
 )
 
@@ -46,7 +44,8 @@ def test_per_class_counts_match_scope() -> None:
     # IGSO is the inclined/eccentric QZSS satellites (QZS-2/4/1R).
     n_qzss_igso = sum(1 for sat in QZSS_CONSTELLATION if sat.orbit_class is OrbitClass.IGSO)
     assert counts[OrbitClass.IGSO] == n_qzss_igso == 3
-    assert counts[OrbitClass.HEO] == len(HEO_OBJECTS) == 3
+    assert counts[OrbitClass.HEO] == 0  # reserved class, no objects in v0.3 (no ingestible source)
+    assert sum(counts.values()) == 92
 
 
 def test_entries_sorted_by_norad() -> None:
@@ -69,13 +68,10 @@ def test_label_source_per_class() -> None:
             assert entry.label_source in (SOURCE_NOAA_GOES, SOURCE_SELF_GEO, SOURCE_QZSS_OHI)
             if entry.label_source == SOURCE_SELF_GEO:
                 assert entry.label_ref == ""  # self-derived, no external ref
-        elif entry.orbit_class is OrbitClass.IGSO:
+        else:
+            assert entry.orbit_class is OrbitClass.IGSO  # HEO has no objects in v0.3 (deferred)
             assert entry.label_source == SOURCE_QZSS_OHI
             assert entry.label_ref.startswith("qzs")
-        else:
-            assert entry.orbit_class is OrbitClass.HEO
-            assert entry.label_source == SOURCE_SELF_HEO
-            assert entry.label_ref == ""  # self-derived, no external ref
 
 
 def test_known_entries_present() -> None:
@@ -87,8 +83,7 @@ def test_known_entries_present() -> None:
     assert by_norad[42738].orbit_class is OrbitClass.IGSO  # QZS-2
     assert by_norad[42738].label_source == SOURCE_QZSS_OHI
     assert by_norad[42917].orbit_class is OrbitClass.GEO  # QZS-3 (equatorial)
-    assert by_norad[25989].orbit_class is OrbitClass.HEO  # XMM-Newton
-    assert by_norad[25989].label_source == SOURCE_SELF_HEO
+    assert 25989 not in by_norad  # XMM-Newton: HEO is deferred, no objects catalogued in v0.3
 
 
 def test_gps_crosswalk() -> None:

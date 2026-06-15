@@ -44,16 +44,6 @@
     {
       "catalogue_source": "spacetrack",
       "end": null,
-      "label_ref": "",
-      "label_source": "SELF-HEO",
-      "norad_id": 25989,
-      "object_name": "XMM-Newton",
-      "orbit_class": "HEO",
-      "start": null
-    },
-    {
-      "catalogue_source": "spacetrack",
-      "end": null,
       "label_ref": "SVN44",
       "label_source": "GPS-NANU",
       "norad_id": 26407,
@@ -89,16 +79,6 @@
       "norad_id": 27421,
       "object_name": "SPOT-5",
       "orbit_class": "LEO",
-      "start": null
-    },
-    {
-      "catalogue_source": "spacetrack",
-      "end": null,
-      "label_ref": "",
-      "label_source": "SELF-HEO",
-      "norad_id": 27540,
-      "object_name": "INTEGRAL",
-      "orbit_class": "HEO",
       "start": null
     },
     {
@@ -659,16 +639,6 @@
       "norad_id": 43226,
       "object_name": "GOES-17",
       "orbit_class": "GEO",
-      "start": null
-    },
-    {
-      "catalogue_source": "spacetrack",
-      "end": null,
-      "label_ref": "",
-      "label_source": "SELF-HEO",
-      "norad_id": 43435,
-      "object_name": "TESS",
-      "orbit_class": "HEO",
       "start": null
     },
     {

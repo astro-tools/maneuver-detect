@@ -12,7 +12,7 @@ single-GPU training budget — gating the public leaderboard Space and the basel
 extends the label-source set for the v0.2 dataset growth (the V2 follow-up survey). **D14** is the first
 v0.3 decision — the foundation-model baseline (Chronos/TimesFM forecast-residual detector) and the
 `[foundation]` extra contract, from V6, gating the v0.3 baseline detector. **D15** is the second v0.3
-decision — the expanded label-source set and the two new orbit classes (IGSO + HEO) for the v0.3
+decision — the expanded label-source set and the new IGSO orbit class (HEO reserved but deferred) for the v0.3
 dataset-growth pass (the V2-survey follow-up #2), extending D3/D4/D9/D13.
 
 ---
@@ -343,32 +343,46 @@ ratifies the set. Every source was verified by a real headless fetch.
 - **MEO — Galileo back-catalogue.** The same NAGU `PLN_MANV` feed (D13), crawled over the full
   2016→present window, is the MEO-thickening lever. Galileo genuinely station-keeps rarely, so the
   realized count stays modest — the richer GNSS thickening is the QZSS operator-Δv set above.
-- **HEO — a new self-labelled class.** **No** licence-clean, headless-ingestible operator maneuver
-  feed exists for the high-eccentricity regime: science HEO (XMM-Newton, INTEGRAL) maneuvers are
-  documented only in prose, Molniya/Tundra operators are silent, and ILRS only re-points to LEO +
-  QZSS. So HEO is populated **best-effort by self-labelling** (energy/eccentricity-step inspection on
-  the reconstructed series — the GEO longitude-shift analogue, with the same **circularity caveat**:
-  reported as a separate, flagged class, not folded into the headline recall) over a small set of
-  genuinely high-e, geocentric, SGP4-tractable, maneuvering objects (XMM-Newton, INTEGRAL, TESS).
-  Spektr-RG is excluded (it is a Sun-Earth-L2 halo orbit, not SGP4-tractable).
+- **HEO — deferred (a reserved class with no objects in v0.3).** **No** ingestible operator maneuver
+  feed exists for the high-eccentricity regime — *not even credentialed* (the licence/headless
+  constraint was relaxed and re-surveyed): science-HEO (XMM-Newton, INTEGRAL) maneuvers are
+  documented only in prose/PDF; ESA SPICE SPKs and archive auxiliary data are continuous ephemeris
+  (re-deriving maneuvers from them is circular); Space-Track's `maneuver` class is operator-panel
+  *predicted* notices (wrong scope, won't include science HEO); ESA DISCOS has no maneuver entity;
+  academic sets are synthetic or unverified. The only ingestible exception, TESS `QUALITY`-flag
+  reaction-wheel desaturations, is attitude-control momentum dumps (~100+/yr, TESS-only), not
+  orbit-control burns. **And self-labelling does not rescue it:** the credentialed reconstruction
+  measured the energy/eccentricity-step self-labeller as **perturbation-dominated** on the noisy
+  deep-space HEO TLEs (XMM 213 "maneuvers"/26 yr, INTEGRAL 340/24 yr vs. ~1–2 real/yr; TESS TLEs
+  too noisy to use), with no clean maneuver/noise separation. So HEO ships as a **reserved class with
+  no objects**; the `OrbitClass.HEO` member, the detectability-floor entry, and the
+  `labels.heo_self` deriver are retained for a future source. **IGSO (QZSS operator-Δv) is therefore
+  the v0.3 new scored class.**
 - **Dead ends (re-confirmed).** **BeiDou** NABU stays uncrawlable (JS-only SPA, no maneuver
   semantics); **GLONASS** stays excluded on terms (150-character reproduction cap); **EUMETSAT** GEO
   notices are real but login/JS-gated with a restrictive data policy. No high-e HEO operator feed
   exists — the self-labelling conclusion is a finding, not a gap papered over.
-- **Class scope (D3) + floor (D4).** Five classes: LEO, MEO, GEO, **IGSO**, **HEO**. The runtime
-  `orbit_class_of` (semi-major-axis only) is **unchanged** — it returns LEO/MEO/GEO, so a detector
-  buckets IGSO/HEO as the nearest coarse class for its working floor/normalisation; the benchmark
-  scores by the **pinned** dataset class, so IGSO/HEO are genuinely scored. The detectability-floor
-  table gains an IGSO entry (≈GEO, geosynchronous) and an HEO analytical placeholder (D4 left HEO
-  open). An eccentricity-aware classifier + per-class IGSO/HEO normalisation statistics are a later
-  refinement, not this pass.
+- **Class scope (D3) + floor (D4).** The taxonomy carries five members — LEO, MEO, GEO, **IGSO**,
+  **HEO** — but only four are populated in v0.3 (IGSO is the new scored class; HEO is reserved/empty,
+  above). The runtime `orbit_class_of` (semi-major-axis only) is **unchanged** — it returns
+  LEO/MEO/GEO, so a detector buckets an IGSO object as the nearest coarse class for its working
+  floor/normalisation; the benchmark scores by the **pinned** dataset class, so IGSO is genuinely
+  scored. The detectability-floor table gains an IGSO entry (≈GEO, geosynchronous) and an HEO
+  analytical placeholder (kept for the reserved class). An eccentricity-aware classifier + per-class
+  IGSO normalisation statistics are a later refinement, not this pass.
 - **Licence (D9).** Attribution stacks per source under the CC-BY-4.0 authored artifacts: NOAA GOES is
   US-gov public domain; QZSS adds "Source: Quasi-Zenith Satellite System website" (CC-BY-4.0); Galileo
   © EU carries forward. No new restriction attaches (BeiDou/GLONASS/EUMETSAT excluded). Each source's
   licence is **confirmed at ingest** (the D13 discipline).
 - **Versioning (D8).** A lockstep **v0.3** dataset bump: the recipe, labels, manifest, and re-frozen
   splits version to 0.3.0; the leak-free + class-stratified split construction and the per-class
-  Wilson-CI scorer are class-generic, so the new classes flow through reporting automatically.
+  Wilson-CI scorer are class-generic, so the new IGSO class flows through reporting automatically.
+- **Public/private boundary (coordination with #95).** All v0.3 labels are committed **public**; none
+  are held back. The hidden-label competition (#95) draws a **forward holdout** — maneuvers with epoch
+  *after* the v0.3 freeze, reconstructed from the same ongoing operator feeds (D2) — which is disjoint
+  from the historical labels committed here, so nothing need be private and no competition label can
+  leak into `labels.json` / `splits.json`. The new operator feeds (QZSS OHI, NOAA GOES) also make a
+  forward GEO/IGSO holdout viable, addressing #95's "thin forward GEO" risk.
 
 Detail in [`spikes/v2-followup2-heo-igso-sources.md`](spikes/v2-followup2-heo-igso-sources.md).
 
