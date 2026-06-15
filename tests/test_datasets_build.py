@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 import pytest
 
+from maneuver_detect.data.cache import Cache
 from maneuver_detect.data.ratelimit import RateLimiter
 from maneuver_detect.datasets.build import (
     fetch_labels,
@@ -62,10 +65,14 @@ def _handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(404)
 
 
-def test_crawls_archive_and_keeps_only_fcstdv() -> None:
+def test_crawls_archive_and_keeps_only_fcstdv(tmp_path: Path) -> None:
     with httpx.Client(transport=httpx.MockTransport(_handler)) as client:
         labels = fetch_nanu_labels(
-            client, start_year=2023, end_year=2024, svn_to_norad={"SVN65": 38833}
+            client,
+            start_year=2023,
+            end_year=2024,
+            svn_to_norad={"SVN65": 38833},
+            cache=Cache(tmp_path),
         )
     # The FCSTSUMM is dropped; only the FCSTDV becomes a label. The 2023 index (404) is skipped.
     assert len(labels) == 1
@@ -74,9 +81,31 @@ def test_crawls_archive_and_keeps_only_fcstdv() -> None:
     assert labels[0].delta_v is None  # NANUs are epoch-only
 
 
-def test_unmapped_svn_is_dropped() -> None:
+def test_cache_prevents_repeat_downloads(tmp_path: Path) -> None:
+    calls = {"n": 0}
+
+    def counting_handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return _handler(request)
+
+    cache = Cache(tmp_path)
+    kwargs = {"start_year": 2024, "end_year": 2024, "svn_to_norad": {"SVN65": 38833}}
+    with httpx.Client(transport=httpx.MockTransport(counting_handler)) as client:
+        first = fetch_nanu_labels(client, cache=cache, **kwargs)  # type: ignore[arg-type]
+        after_first = calls["n"]
+        second = fetch_nanu_labels(client, cache=cache, **kwargs)  # type: ignore[arg-type]
+    assert after_first > 0  # the first crawl hit the network
+    assert (
+        calls["n"] == after_first
+    )  # the second crawl re-downloaded nothing (all served from cache)
+    assert second == first  # and produced the same labels
+
+
+def test_unmapped_svn_is_dropped(tmp_path: Path) -> None:
     with httpx.Client(transport=httpx.MockTransport(_handler)) as client:
-        labels = fetch_nanu_labels(client, start_year=2024, end_year=2024, svn_to_norad={})
+        labels = fetch_nanu_labels(
+            client, start_year=2024, end_year=2024, svn_to_norad={}, cache=Cache(tmp_path)
+        )
     assert labels == []  # SVN65 not in the crosswalk -> no NORAD -> dropped
 
 
@@ -146,7 +175,9 @@ def _recipe() -> Recipe:
     )
 
 
-def test_fetch_labels_merges_doris_and_nanu_and_dedups(capsys: pytest.CaptureFixture[str]) -> None:
+def test_fetch_labels_merges_doris_and_nanu_and_dedups(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
     with httpx.Client(transport=httpx.MockTransport(_labels_handler)) as client:
         by_norad = fetch_labels(
             _recipe(),
@@ -154,6 +185,7 @@ def test_fetch_labels_merges_doris_and_nanu_and_dedups(capsys: pytest.CaptureFix
             nanu_start_year=2024,
             nanu_end_year=2024,
             rate_limiter=RateLimiter(0.0),  # disabled limiter, but exercises the acquire() path
+            cache=Cache(tmp_path),
         )
     # DORIS JASON (one event) and NANU SVN62 both land, keyed by NORAD.
     assert set(by_norad) == {26997, 36585}
@@ -202,9 +234,13 @@ def _qzss_handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(404)  # ohi-qzs6.txt missing
 
 
-def test_fetch_qzss_ohi_skips_missing_files(capsys: pytest.CaptureFixture[str]) -> None:
+def test_fetch_qzss_ohi_skips_missing_files(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
     with httpx.Client(transport=httpx.MockTransport(_qzss_handler)) as client:
-        labels = fetch_qzss_ohi_labels(_qzss_recipe(), client, rate_limiter=RateLimiter(0.0))
+        labels = fetch_qzss_ohi_labels(
+            _qzss_recipe(), client, rate_limiter=RateLimiter(0.0), cache=Cache(tmp_path)
+        )
     assert len(labels) == 1  # only QZS-2 has an OHI file
     assert labels[0].norad_id == 42738
     assert labels[0].orbit_class is OrbitClass.IGSO
@@ -240,10 +276,13 @@ def _noaa_handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(404)
 
 
-def test_fetch_noaa_goes_dedups_across_snapshots() -> None:
+def test_fetch_noaa_goes_dedups_across_snapshots(tmp_path: Path) -> None:
     with httpx.Client(transport=httpx.MockTransport(_noaa_handler)) as client:
         labels = fetch_noaa_goes_labels(
-            client, goes_name_to_norad=_GOES_NAME_TO_NORAD, rate_limiter=RateLimiter(0.0)
+            client,
+            goes_name_to_norad=_GOES_NAME_TO_NORAD,
+            rate_limiter=RateLimiter(0.0),
+            cache=Cache(tmp_path),
         )
     # Two distinct maneuver days (24/015, 26/159); the live file repeats 26/159 and is deduped.
     assert len(labels) == 2

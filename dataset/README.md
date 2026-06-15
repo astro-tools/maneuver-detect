@@ -61,8 +61,11 @@ QZSS OHI files, and the NOAA GOES navigation summaries (via the Internet Archive
 history of those live-state files) for the operator labels, derives the self-labelled GEO and HEO
 labels from the reconstructed series, and writes `recipe.json`, `labels.json`, and `manifest.json`.
 It is a long run — the label archives are crawled file-by-file at a polite rate, in addition to the
-per-object Space-Track fetch. Re-running on the same recipe reproduces identical hashes, so a mismatch
-against the committed `manifest.json` means the reconstruction diverged.
+per-object Space-Track fetch. Fetched label files are cached on disk (the immutable operator
+notices effectively forever), so re-running re-downloads only the changing archive indexes and
+append-only files — a re-run makes almost no requests to the label providers. Re-running on the same
+recipe reproduces identical hashes, so a mismatch against the committed `manifest.json` means the
+reconstruction diverged.
 
 The GPS NANU and Galileo NAGU archives are crawled over a year window — `--nanu-start-year`
 (default 2016) and `--nanu-end-year` (default: the current year) — so `labels.json` is a snapshot of

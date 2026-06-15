@@ -26,6 +26,7 @@ from pathlib import Path
 import httpx
 
 from maneuver_detect.data.base import Fetcher
+from maneuver_detect.data.cache import Cache, default_cache
 from maneuver_detect.data.ratelimit import RateLimiter
 from maneuver_detect.datasets.catalogue import (
     galileo_gsat_to_norad,
@@ -91,6 +92,56 @@ _NOAA_CDX_URL = (
     "?url=ospo.noaa.gov/resources/cemscs/navsum.txt&output=json&collapse=digest&fl=timestamp"
 )
 _NOAA_SNAPSHOT_URL = "https://web.archive.org/web/{timestamp}id_/" + _NOAA_NAVSUM_URL
+
+# On-disk cache sources (subdirectories) for the label-file fetches. The crawls are otherwise a full
+# re-download of immutable archives on every run — exactly the "repeated downloads" the providers
+# rate-limit — so every fetched body is cached and re-served. CelesTrak explicitly asks for this:
+# "individual NANUs are only updated once, so there is no need to download any NANU more than once".
+_CACHE_SOURCE_NANU = "labels-nanu"
+_CACHE_SOURCE_NAGU = "labels-nagu"
+_CACHE_SOURCE_QZSS = "labels-qzss-ohi"
+_CACHE_SOURCE_DORIS = "labels-doris"
+_CACHE_SOURCE_NOAA = "labels-noaa-goes"
+
+# TTLs. Notice files (a NANU/NAGU notice, an Internet-Archive snapshot) are immutable once issued,
+# so cached effectively forever; archive *indexes* and the append-only OHI / man.txt / live files
+# gain entries over time, so they carry a short TTL that still spares same-day re-runs.
+_TTL_IMMUTABLE_S = 365.0 * 24 * 3600
+_TTL_APPENDED_S = 24.0 * 3600
+_TTL_INDEX_S = 6.0 * 3600
+
+
+def _cached_text(
+    client: httpx.Client,
+    cache: Cache,
+    *,
+    source: str,
+    url: str,
+    ttl_s: float,
+    rate_limiter: RateLimiter | None = None,
+    tolerant: bool = False,
+) -> str | None:
+    """Return the text body of ``url``, served from / written to ``cache``.
+
+    A fresh cache hit returns immediately with **no** network request (and so consumes no
+    ``rate_limiter`` slot) — the whole point, so a re-run does not re-download an immutable archive.
+    On a miss the URL is fetched (paced by ``rate_limiter``); a ``200`` body is cached and returned,
+    a ``404`` returns ``None``, and any other status raises (``tolerant=True`` returns ``None``
+    instead, for best-effort sources where one bad snapshot should not abort the crawl).
+    """
+    hit = cache.get(source, url, ttl_s=ttl_s)
+    if hit is not None:
+        return str(hit.value)
+    if rate_limiter is not None:
+        rate_limiter.acquire()
+    response = client.get(url)
+    if response.status_code == 200:
+        cache.put(source, url, response.text)
+        return response.text
+    if response.status_code == 404 or tolerant:
+        return None
+    response.raise_for_status()
+    return None  # unreachable: raise_for_status raised
 
 
 def labels_to_json(labels: Sequence[ManeuverLabel]) -> str:
@@ -189,32 +240,46 @@ def fetch_nanu_labels(
     end_year: int,
     svn_to_norad: Mapping[str, int],
     rate_limiter: RateLimiter | None = None,
+    cache: Cache | None = None,
 ) -> list[ManeuverLabel]:
     """Crawl the CelesTrak NANU archive over ``[start_year, end_year]`` for FCSTDV maneuver labels.
 
     Each year's index lists one file per notice; every file is fetched and parsed, keeping only the
-    FCSTDV (maneuver) notices that resolve to a NORAD id. ``rate_limiter`` paces the per-file
-    fetches (the archive holds tens of files per year) — pass one for a polite crawl. A missing
-    year index (404) is skipped.
+    FCSTDV (maneuver) notices that resolve to a NORAD id. Fetches are served from ``cache`` (the
+    notices are immutable, so a re-run re-downloads nothing — the CelesTrak-requested behaviour);
+    ``rate_limiter`` paces the per-file fetches that actually hit the network. A missing year index
+    (404) is skipped. A past year's index is cached as immutable; the current (``end_year``) index
+    carries a short TTL so newly issued notices are still picked up.
     """
+    cache = cache or default_cache()
     labels: list[ManeuverLabel] = []
     for year in range(start_year, end_year + 1):
-        index = client.get(_NANU_ARCHIVE_INDEX.format(year=year))
-        if index.status_code == 404:
+        index_ttl = _TTL_INDEX_S if year >= end_year else _TTL_IMMUTABLE_S
+        index_text = _cached_text(
+            client,
+            cache,
+            source=_CACHE_SOURCE_NANU,
+            url=_NANU_ARCHIVE_INDEX.format(year=year),
+            ttl_s=index_ttl,
+        )
+        if index_text is None:  # a missing year index (404)
             continue
-        index.raise_for_status()
-        names = sorted(set(re.findall(r"nanu\.\d{7}\.txt", index.text)))
+        names = sorted(set(re.findall(r"nanu\.\d{7}\.txt", index_text)))
         before = len(labels)
         for name in names:
-            if rate_limiter is not None:
-                rate_limiter.acquire()
-            response = client.get(_NANU_ARCHIVE_FILE.format(year=year, name=name))
-            if response.status_code == 404:
+            text = _cached_text(
+                client,
+                cache,
+                source=_CACHE_SOURCE_NANU,
+                url=_NANU_ARCHIVE_FILE.format(year=year, name=name),
+                ttl_s=_TTL_IMMUTABLE_S,
+                rate_limiter=rate_limiter,
+            )
+            if text is None:
                 continue
-            response.raise_for_status()
             labels.extend(
                 label
-                for label in parse_nanus(response.text, svn_to_norad=svn_to_norad)
+                for label in parse_nanus(text, svn_to_norad=svn_to_norad)
                 if label.norad_id is not None
             )
         _logger.info(
@@ -230,32 +295,39 @@ def fetch_galileo_nagu_labels(
     end_year: int,
     gsat_to_norad: Mapping[str, int],
     rate_limiter: RateLimiter | None = None,
+    cache: Cache | None = None,
 ) -> list[ManeuverLabel]:
     """Crawl the GSC Galileo NAGU archive over ``[start_year, end_year]`` for PLN_MANV labels.
 
     The GSC exposes no machine listing, so each year is probed by sequential notice number
     (``seq = 1, 2, ...``) against the stable ``.txt`` URL; a run of :data:`_NAGU_MISS_RUN`
     consecutive 404s ends the year (NAGU numbers are sequential per year). Every fetched notice is
-    parsed and only the ``PLN_MANV`` notices that resolve to a NORAD id are kept. ``rate_limiter``
-    paces the per-file fetches — pass one for a polite crawl.
+    parsed and only the ``PLN_MANV`` notices that resolve to a NORAD id are kept. Issued notices are
+    immutable, so they are served from ``cache`` on a re-run (only the trailing 404 probes re-hit
+    the network); ``rate_limiter`` paces the fetches that do.
     """
+    cache = cache or default_cache()
     labels: list[ManeuverLabel] = []
     for year in range(start_year, end_year + 1):
         before = len(labels)
         seq, misses = 0, 0
         while misses < _NAGU_MISS_RUN:
             seq += 1
-            if rate_limiter is not None:
-                rate_limiter.acquire()
-            response = client.get(_GSC_NAGU_FILE.format(year=year, seq=seq))
-            if response.status_code == 404:
+            text = _cached_text(
+                client,
+                cache,
+                source=_CACHE_SOURCE_NAGU,
+                url=_GSC_NAGU_FILE.format(year=year, seq=seq),
+                ttl_s=_TTL_IMMUTABLE_S,
+                rate_limiter=rate_limiter,
+            )
+            if text is None:
                 misses += 1
                 continue
-            response.raise_for_status()
             misses = 0
             labels.extend(
                 label
-                for label in parse_nagus(response.text, gsat_to_norad=gsat_to_norad)
+                for label in parse_nagus(text, gsat_to_norad=gsat_to_norad)
                 if label.norad_id is not None
             )
         _logger.info(
@@ -269,30 +341,37 @@ def fetch_qzss_ohi_labels(
     client: httpx.Client,
     *,
     rate_limiter: RateLimiter | None = None,
+    cache: Cache | None = None,
 ) -> list[ManeuverLabel]:
     """Fetch and parse the QZSS OHI executed-maneuver logs for the recipe's QZSS entries.
 
     One OHI file is fetched per QZSS recipe entry (keyed by the entry's ``label_ref`` OHI stem) and
     parsed with the entry's pinned NORAD id and orbit class (IGSO for QZS-2/4/1R, GEO for QZS-3/6).
     A missing file (404 — e.g. a freshly launched satellite without a log yet) is skipped with a
-    warning rather than aborting. ``rate_limiter`` paces the per-file fetches.
+    warning rather than aborting. OHI files gain rows over time, so they are cached with a short TTL
+    (``cache``); ``rate_limiter`` paces the fetches that hit the network.
     """
+    cache = cache or default_cache()
     labels: list[ManeuverLabel] = []
     for entry in recipe.entries:
         if entry.label_source != SOURCE_QZSS_OHI:
             continue
-        if rate_limiter is not None:
-            rate_limiter.acquire()
-        response = client.get(_QZSS_OHI_URL.format(ref=entry.label_ref))
-        if response.status_code == 404:
+        text = _cached_text(
+            client,
+            cache,
+            source=_CACHE_SOURCE_QZSS,
+            url=_QZSS_OHI_URL.format(ref=entry.label_ref),
+            ttl_s=_TTL_APPENDED_S,
+            rate_limiter=rate_limiter,
+        )
+        if text is None:
             print(
                 f"warning: QZSS OHI file 'ohi-{entry.label_ref}.txt' not found (404); skipping",
                 file=sys.stderr,
             )
             continue
-        response.raise_for_status()
         events = parse_qzss_ohi(
-            response.text,
+            text,
             norad_id=entry.norad_id,
             orbit_class=entry.orbit_class,
             qzs_label=entry.object_name,
@@ -307,6 +386,7 @@ def fetch_noaa_goes_labels(
     *,
     goes_name_to_norad: Mapping[str, int],
     rate_limiter: RateLimiter | None = None,
+    cache: Cache | None = None,
 ) -> list[ManeuverLabel]:
     """Build the GOES maneuver history from the NOAA navsum file's Internet-Archive snapshots.
 
@@ -314,25 +394,41 @@ def fetch_noaa_goes_labels(
     recovered by replaying its archived snapshots: the Internet Archive CDX API lists every
     content-distinct snapshot, each is fetched verbatim and parsed, and the distinct
     ``(norad_id, maneuver-day)`` epochs are accumulated. The current live file is parsed last so the
-    newest maneuver is captured even before the archive catches up. ``rate_limiter`` paces the
-    per-snapshot fetches. Returns the deduplicated labels in discovery order.
+    newest maneuver is captured even before the archive catches up. Snapshots are immutable so they
+    are cached forever; the CDX listing and the live file carry a short TTL. A snapshot that fails
+    to fetch is skipped (best-effort). ``rate_limiter`` paces the fetches that hit the network.
     """
+    cache = cache or default_cache()
     timestamps: list[str] = []
-    index = client.get(_NOAA_CDX_URL)
-    if index.status_code == 200 and index.text.strip():
-        rows = json.loads(index.text)
+    index_text = _cached_text(
+        client,
+        cache,
+        source=_CACHE_SOURCE_NOAA,
+        url=_NOAA_CDX_URL,
+        ttl_s=_TTL_INDEX_S,
+        tolerant=True,
+    )
+    if index_text and index_text.strip():
+        rows = json.loads(index_text)
         timestamps = [row[0] for row in rows[1:]]  # row 0 is the ["timestamp"] header
-    sources = [_NOAA_SNAPSHOT_URL.format(timestamp=ts) for ts in timestamps] + [_NOAA_NAVSUM_URL]
+    snapshots = [(_NOAA_SNAPSHOT_URL.format(timestamp=ts), _TTL_IMMUTABLE_S) for ts in timestamps]
+    snapshots.append((_NOAA_NAVSUM_URL, _TTL_INDEX_S))  # the live file (short TTL)
 
     seen: set[tuple[int, str]] = set()
     labels: list[ManeuverLabel] = []
-    for url in sources:
-        if rate_limiter is not None:
-            rate_limiter.acquire()
-        response = client.get(url)
-        if response.status_code != 200:
+    for url, ttl_s in snapshots:
+        text = _cached_text(
+            client,
+            cache,
+            source=_CACHE_SOURCE_NOAA,
+            url=url,
+            ttl_s=ttl_s,
+            rate_limiter=rate_limiter,
+            tolerant=True,
+        )
+        if text is None:
             continue
-        for label in parse_navsum(response.text, goes_name_to_norad=goes_name_to_norad):
+        for label in parse_navsum(text, goes_name_to_norad=goes_name_to_norad):
             if label.norad_id is None:
                 continue
             key = (label.norad_id, label.window_start.isoformat())
@@ -341,7 +437,7 @@ def fetch_noaa_goes_labels(
             seen.add(key)
             labels.append(label)
     _logger.info(
-        "NOAA GOES: %d distinct maneuver epochs over %d snapshots", len(labels), len(sources)
+        "NOAA GOES: %d distinct maneuver epochs over %d snapshots", len(labels), len(snapshots)
     )
     return labels
 
@@ -353,34 +449,44 @@ def fetch_labels(
     nanu_start_year: int,
     nanu_end_year: int,
     rate_limiter: RateLimiter | None = None,
+    cache: Cache | None = None,
 ) -> dict[int, list[ManeuverLabel]]:
     """Download and parse the open maneuver-label files for ``recipe``, keyed by NORAD id.
 
     DORIS/IDS ``man.txt`` files are fetched one per LEO entry (a renamed/missing file is skipped
     with a warning); the GPS NANU FCSTDV notices come from the CelesTrak archive and — when the
     recipe carries Galileo entries — the Galileo NAGU notices from the GSC archive, both
-    over ``[nanu_start_year, nanu_end_year]`` with the full constellation crosswalks. Labels that do
-    not resolve to a NORAD id are dropped (they cannot attach to a series). The self-labelled GEO
-    source carries no external file — those labels are derived from the series at reconstruction.
+    over ``[nanu_start_year, nanu_end_year]`` with the full constellation crosswalks; QZSS OHI and
+    NOAA GOES labels come from their entries' sources. Every fetched file is served from / written
+    to ``cache`` (defaulting to the shared on-disk cache), so a re-run re-downloads only the mutable
+    archive indexes and append-only files — the immutable notices are reused, which is what the
+    providers (CelesTrak especially) ask for. Labels that do not resolve to a NORAD id are dropped.
+    The self-labelled GEO/HEO sources carry no external file — those are derived at reconstruction.
     """
+    cache = cache or default_cache()
     by_norad: dict[int, list[ManeuverLabel]] = {}
     seen_refs: set[str] = set()
     for entry in recipe.entries:
         if entry.label_source != SOURCE_DORIS_IDS or entry.label_ref in seen_refs:
             continue
         seen_refs.add(entry.label_ref)
-        response = client.get(_IDS_MAN_URL.format(ref=entry.label_ref))
-        if response.status_code == 404:
-            # The IDS server occasionally renames a man.txt file; skip a missing one with a loud
-            # warning rather than aborting the whole build (that object just gets no labels).
+        # The IDS server occasionally renames a man.txt file; a missing one (404 -> None) is skipped
+        # with a loud warning rather than aborting the build (that object just gets no labels).
+        text = _cached_text(
+            client,
+            cache,
+            source=_CACHE_SOURCE_DORIS,
+            url=_IDS_MAN_URL.format(ref=entry.label_ref),
+            ttl_s=_TTL_APPENDED_S,
+        )
+        if text is None:
             print(
                 f"warning: DORIS file '{entry.label_ref}man.txt' not found (404); skipping",
                 file=sys.stderr,
             )
             continue
-        response.raise_for_status()
         kept = 0
-        for label in parse_doris(response.text):
+        for label in parse_doris(text):
             if label.norad_id is not None:
                 by_norad.setdefault(label.norad_id, []).append(label)
                 kept += 1
@@ -392,6 +498,7 @@ def fetch_labels(
         end_year=nanu_end_year,
         svn_to_norad=gps_svn_to_norad(),
         rate_limiter=rate_limiter,
+        cache=cache,
     ):
         if label.norad_id is not None:
             by_norad.setdefault(label.norad_id, []).append(label)
@@ -403,18 +510,19 @@ def fetch_labels(
             end_year=nanu_end_year,
             gsat_to_norad=galileo_gsat_to_norad(),
             rate_limiter=rate_limiter,
+            cache=cache,
         ):
             if label.norad_id is not None:
                 by_norad.setdefault(label.norad_id, []).append(label)
 
     if any(entry.label_source == SOURCE_QZSS_OHI for entry in recipe.entries):
-        for label in fetch_qzss_ohi_labels(recipe, client, rate_limiter=rate_limiter):
+        for label in fetch_qzss_ohi_labels(recipe, client, rate_limiter=rate_limiter, cache=cache):
             if label.norad_id is not None:
                 by_norad.setdefault(label.norad_id, []).append(label)
 
     if any(entry.label_source == SOURCE_NOAA_GOES for entry in recipe.entries):
         for label in fetch_noaa_goes_labels(
-            client, goes_name_to_norad=goes_name_to_norad(), rate_limiter=rate_limiter
+            client, goes_name_to_norad=goes_name_to_norad(), rate_limiter=rate_limiter, cache=cache
         ):
             if label.norad_id is not None:
                 by_norad.setdefault(label.norad_id, []).append(label)
