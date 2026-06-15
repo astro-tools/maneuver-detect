@@ -1,10 +1,12 @@
-# Design decisions (D1–D13)
+# Design decisions (D1–D17)
 
 The frozen decision record. It consolidates the prerequisite analysis (the dataset-redistribution,
-label-source, detectability-floor, Δv-inversion, irregular-sampling, and leaderboard-integrity studies) and
-the project charter into the decisions that fix the shape of the dataset, the benchmark, and the library
-contract. **D1–D10 fix the v0.1 surface; D11–D13 the v0.2 additions** — the learned baselines, the public
-leaderboard, and the dataset-growth pass. Each decision states the call and its rationale; the implementable
+label-source, detectability-floor, Δv-inversion, irregular-sampling, foundation-model, and
+leaderboard-integrity studies) and the project charter into the decisions that fix the shape of the dataset,
+the benchmark, and the library contract. **D1–D10 fix the v0.1 surface; D11–D13 the v0.2 additions** — the
+learned baselines, the public leaderboard, and the dataset-growth pass; **D14–D17 the v0.3 additions** — the
+foundation-model baseline, the expanded dataset with the new IGSO class, the hidden-label competition design,
+and the score-protocol and calibration bump. Each decision states the call and its rationale; the implementable
 benchmark contract is on the [benchmark protocol](benchmark.md) page, and the output schema and Δv inversion
 on the [schema reference](schema.md) page.
 
@@ -175,4 +177,89 @@ gap and the open question on non-GPS GNSS notices:
 
 ---
 
-*Derived from the v0.1 and v0.2 prerequisite studies and the project charter.*
+## D14 — Foundation-model baseline + the `[foundation]` extra
+
+v0.3 adds a **foundation-model baseline**: a forecast-residual detector that replaces the classical detector's
+hand-built quiet-dynamics prior with a pretrained time-series model. It forecasts each object's mean-element
+series, standardises the forecast residual, and thresholds it per orbit class; the D4 matcher, the D5 Δv
+inversion, the D6 schema, and the D7 scorer are all reused unchanged. The shipped backend is **Chronos**
+(`amazon/chronos-bolt-small`), chosen over TimesFM — which was wired as a second entry but **removed** when its
+zero-shot forecast proved unusable on noisy sub-daily LEO series. Both families publish Apache-2.0 checkpoints,
+so a fine-tune is redistributable (D9) and the dependency is permissive; the licence is confirmed per
+checkpoint revision at ingest. The detector lives behind the optional **`[foundation]`** extra
+(`= chronos-forecasting`) the base install excludes (D1 / D10), imports its backend lazily, and pulls the
+checkpoint from the Hub at runtime. One implementation finding fixed the recipe: the residual is standardised
+by a robust per-object MAD, not the model's predictive interval, which collapses toward zero on confident gaps.
+The v0.3 baseline ships **zero-shot** — it trains nothing, so it runs on the free CPU/GPU tiers; a light
+Chronos fine-tune is the optional polish, not the default.
+
+---
+
+## D15 — Expanded label sources + the IGSO class for v0.3 dataset growth
+
+The v0.3 dataset-growth pass extends the D13 source set and adds a new scored orbit class, resolving the v0.2
+caveats that the GEO labels were self-derived (circular) and the second MEO operator (Galileo) was thin:
+
+- **IGSO + GEO — add QZSS via the OHI files.** Japan's Cabinet Office publishes a per-satellite *Operational
+  History Information* file carrying each Quasi-Zenith satellite's executed orbit-maintenance Δv — the only
+  surveyed operator feed besides DORIS that ships an executed Δv. QZS-2/4/1R are inclined and eccentric — a
+  **new IGSO class** (magnitude-only Δv, since the IGSO files omit the burn-direction marker); QZS-3/6 are
+  equatorial GEO and carry an operator Δv with a north-south / east-west type marker. Shipped under CC-BY-4.0
+  ("Source: Quasi-Zenith Satellite System website").
+- **GEO — add NOAA GOES operator epochs.** The NOAA OSPO navigation summary names each GOES bird's
+  last-maneuver day (US-Government public domain, shipped); the history is replayed from its Internet-Archive
+  snapshots. With QZSS, this moves GEO from self-labelled to operator-announced and breaks the v0.2 self-label
+  circularity.
+- **MEO — Galileo back-catalogue.** The same NAGU feed (D13), crawled over the full window, thickens MEO.
+- **HEO — reserved, no objects in v0.3.** No ingestible operator feed exists for the high-eccentricity regime
+  even credentialed, and self-labelling the noisy deep-space TLEs is perturbation-dominated, so HEO ships as a
+  reserved, empty class — **IGSO is the v0.3 new scored class.**
+- **Scope / licence (D3 / D9) otherwise unchanged:** LEO primary and Δv-labelled; attribution stacks per source
+  (NOAA public domain, QZSS CC-BY, Galileo © EU); no new restriction attaches (BeiDou / GLONASS / EUMETSAT
+  excluded). A lockstep v0.3 dataset bump; the class-generic splits and per-class scorer carry the new IGSO
+  class through reporting automatically.
+
+---
+
+## D16 — Hidden-label competition track via a never-committed forward holdout
+
+The design of the true hidden-label competition the **D12 amendment** deferred. The open dataset publishes
+every committed label, so a competition needs labels that were never committed: a **forward holdout** of
+maneuvers with epoch strictly after the public dataset's freeze, reconstructed from the same operator feeds via
+the D2 recipe and never written to `labels.json` / `splits.json`. Disjointness is purely temporal (a single
+`epoch > freeze` cut), so the same object may appear on both sides. The holdout is **rolling, keyed to the
+release cadence** — at each release the matured window is revealed into the next public dataset and a fresh
+forward window becomes the new private holdout. On a never-committed holdout the full D12.3 firewall is
+restorable: hidden labels, a public/private split scored once at the reveal, the rate limit now an integrity
+bound, and the aggregate-only / fixed-schema round trip. LEO and MEO carry the competition from launch; the
+D15 operator feeds (QZSS, NOAA GOES) populate GEO/IGSO for real. The **board itself is a follow-up build**,
+gated on a v0.3 release first freezing the public dataset to define `epoch > freeze`; this decision fixes its
+shape, not its code.
+
+---
+
+## D17 — v0.3 score-protocol bump: per-class operating point + baked-in calibration
+
+The publish half of the uncertainty-calibration work, applied to the real v0.3 baselines (the calibration
+*machinery* — reliability diagrams, temperature scaling, split-conformal — landed earlier as model-agnostic
+code; see the [benchmark protocol](benchmark.md#confidence-calibration)):
+
+- **Per-class operating point in the report.** `ScoreReport.to_json` gains a per-class
+  `operating_point_confidence` — the confidence cut admitted within the false-alarm budget at the headline
+  operating point. It is additive (every prior field byte-for-byte unchanged) but it **changes the frozen
+  scorer artifact**, so it is a v0.3-boundary change, not a v0.2 patch.
+- **Calibration baked into the bundle, not re-fit at load.** Each published detector carries a calibrator
+  (temperature scaling + a split-conformal predictor) **fit on the val split only** — never the test labels —
+  frozen into its bundle, so a loaded model emits calibrated confidence with no calibration data at inference
+  (the same can't-drift discipline as the model card). Old bundles without a calibrator load unchanged.
+- **Reliability + operating points are published, not asserted.** The per-class reliability curve and the
+  calibrated operating point are recorded into the bundle and rendered onto the model card; consistent with the
+  no-committed-real-data convention, the committed docs carry the methodology and a bundle→diagram helper, and
+  the real-data figures are rendered at the credentialed release-cut run.
+- **The leaderboard tolerates the field by ignoring it** — its public response stays a strict aggregate subset
+  (headline recall per class, the operating point, the timing floor), so the new field neither leaks into a
+  response nor changes scoring.
+
+---
+
+*Derived from the v0.1, v0.2, and v0.3 prerequisite studies and the project charter.*
