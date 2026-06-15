@@ -15,6 +15,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 
 from maneuver_detect.benchmark import (
@@ -28,6 +29,8 @@ from maneuver_detect.benchmark import (
     TemporalSplit,
     score,
 )
+from maneuver_detect.benchmark.matching import match_detections
+from maneuver_detect.calibration import CalibrationSamples, TemperatureScaling
 from maneuver_detect.detectors.base import Detector
 from maneuver_detect.detectors.classical import ClassicalDetector
 from maneuver_detect.labels.labeller import label_series
@@ -40,7 +43,9 @@ __all__ = [
     "PerClassThresholdTuning",
     "SelectionObjective",
     "ThresholdTuning",
+    "calibration_samples_on_val",
     "detections_for_partition",
+    "fit_temperature_on_val",
     "macro_above_floor_recall",
     "objective_recall",
     "pooled_above_floor_recall",
@@ -447,3 +452,78 @@ def tune_thresholds_per_class_on_val(
         by_threshold=by_threshold,
         by_class=by_class,
     )
+
+
+def calibration_samples_on_val(
+    detector: Detector,
+    series_by_norad: Mapping[int, pd.DataFrame],
+    labels: Sequence[ManeuverLabel],
+    split: TemporalSplit,
+    *,
+    partition: SplitName = SplitName.VAL,
+) -> dict[OrbitClass, CalibrationSamples]:
+    """The per-orbit-class ``(confidence, outcome)`` pairs to calibrate ``detector`` on a split.
+
+    Runs ``detector`` on the partition (the val split by default) and matches its detections to the
+    era-scoped labels through the **same** :func:`~maneuver_detect.benchmark.match_detections` the
+    scorer uses, then records, per orbit class, each detection's emitted confidence and its verdict:
+    ``1.0`` for an above-floor true positive, ``0.0`` for a false alarm. Below-floor matches are
+    excluded, exactly as the benchmark's precision excludes them. Because only the named partition
+    is read, fitting a calibrator on the result never touches the test labels (no leakage). Every
+    :class:`~maneuver_detect.labels.record.OrbitClass` is present; a class with no detections maps
+    to empty arrays.
+    """
+    detections = detections_for_partition(detector, series_by_norad, split, partition=partition)
+    scored_labels, exposure = scoring_inputs_for_partition(
+        series_by_norad, labels, split, partition=partition
+    )
+    class_by_norad = {obj.norad_id: obj.orbit_class for obj in exposure}
+    matching = match_detections(detections, scored_labels)
+
+    confidences: dict[OrbitClass, list[float]] = {c: [] for c in OrbitClass}
+    outcomes: dict[OrbitClass, list[float]] = {c: [] for c in OrbitClass}
+    for match in matching.matches:
+        det = match.detection
+        orbit_class = class_by_norad.get(det.norad_id)
+        if orbit_class is None:
+            continue
+        if match.label is None:
+            outcome = 0.0  # false alarm
+        elif match.label.above_floor:
+            outcome = 1.0  # above-floor true positive
+        else:
+            continue  # below-floor match: ignored, as the benchmark's precision ignores it
+        confidences[orbit_class].append(det.confidence)
+        outcomes[orbit_class].append(outcome)
+
+    return {
+        orbit_class: CalibrationSamples(
+            confidences=np.asarray(confidences[orbit_class], dtype=np.float64),
+            outcomes=np.asarray(outcomes[orbit_class], dtype=np.float64),
+        )
+        for orbit_class in OrbitClass
+    }
+
+
+def fit_temperature_on_val(
+    detector: Detector,
+    series_by_norad: Mapping[int, pd.DataFrame],
+    labels: Sequence[ManeuverLabel],
+    split: TemporalSplit,
+    *,
+    partition: SplitName = SplitName.VAL,
+) -> TemperatureScaling:
+    """Fit one temperature on the detector's pooled val-split ``(confidence, outcome)`` pairs.
+
+    A convenience over :func:`calibration_samples_on_val`: pools every class's samples and fits a
+    single :class:`~maneuver_detect.calibration.TemperatureScaling`. Raises :class:`ValueError` if
+    the partition yields no matched detections to calibrate on.
+    """
+    samples = calibration_samples_on_val(
+        detector, series_by_norad, labels, split, partition=partition
+    )
+    confidences = np.concatenate([s.confidences for s in samples.values()])
+    outcomes = np.concatenate([s.outcomes for s in samples.values()])
+    if confidences.size == 0:
+        raise ValueError("no matched detections on the val split to calibrate on")
+    return TemperatureScaling.fit(confidences, outcomes)
