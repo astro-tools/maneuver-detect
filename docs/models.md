@@ -25,13 +25,15 @@ detector's hand-built one); the physics inversion is then identical. It lives be
 `[foundation]` extra, so the base install stays light — `pip install "maneuver-detect[foundation]"`
 to use it.
 
-On the frozen v0.2 benchmark both learned baselines beat the classical reference on the headline
-metric — above-floor recall at the fixed false-alarm rate — driven by the LEO and GEO classes, while
-on the small MEO population the three are comparable. The exact per-class recall and precision each
-baseline reaches are recorded on its model card, generated from the checkpoint's own held-out
-evaluation — which, together with the public [leaderboard](leaderboard.md), where the baselines and any
-submitted method are ranked on this same frozen split, is the authoritative source for the numbers; the
-classical detector is the bar the learned models are measured against.
+The baselines are scored on the **frozen v0.3 benchmark** — above-floor recall at a fixed false-alarm rate,
+per class — with the classical detector the bar the learned (BiLSTM, transformer) and foundation
+(`chronos-residual`) baselines are measured against. The LEO Δv-labelled core is where the learned and
+foundation detectors have the most signal; GEO stays the hard class for every detector (tiny station-keeping
+steps), and IGSO is the new v0.3 scored class. The **exact** per-class recall and precision each baseline
+reaches are recorded on its model card — generated from the checkpoint's own held-out evaluation, so the
+documented numbers cannot drift from the weights — which, together with the public
+[leaderboard](leaderboard.md), where the baselines and any submitted method are ranked on this same frozen
+split, is the authoritative source for the numbers.
 
 ## Run a learned model
 

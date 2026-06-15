@@ -14,9 +14,11 @@ inter-elset gap**, not a continuous timestamp.
 
 ## Population and classes
 
-- **Classes scored: LEO, MEO, GEO** (HEO is deferred). Each object is assigned its class from its mean motion.
+- **Classes scored: LEO, MEO, GEO, IGSO** (HEO is a reserved, currently-empty class). Each object's class
+  comes from the pinned dataset — mean motion for the coarse LEO / MEO / GEO buckets, and the pinned IGSO
+  membership for the inclined geosynchronous Quasi-Zenith satellites.
 - **Above-floor population.** A maneuver below the per-object **detectability floor** (≈ cm/s in LEO,
-  ≈ 0.05–0.15 m/s in GEO, analytical for MEO) is physically undetectable from TLEs by *any* method. The
+  ≈ 0.05–0.15 m/s in GEO and IGSO, analytical for MEO) is physically undetectable from TLEs by *any* method. The
   **primary metric is computed over the above-floor population**; full-population recall is reported as a
   secondary, lower-bound figure. The floor is calibrated per object/class, not a single global constant.
 
@@ -154,8 +156,8 @@ Two paths run the **same deterministic scorer** and produce the **same numbers**
   it against the labels with the snippet above. Numbers directly comparable to the baselines, with no account
   beyond your own Space-Track access.
 - **The public [leaderboard](leaderboard.md)** — upload your `predictions.json` to the hosted Hugging Face
-  Space and read your per-class above-floor recall, ranked against the classical, BiLSTM, and transformer
-  baselines on the frozen v0.2 test split.
+  Space and read your per-class above-floor recall, ranked against the classical, BiLSTM, transformer, and
+  foundation baselines on the frozen v0.3 test split.
 
 The protocol on this page is the shared contract behind both. The [leaderboard guide](leaderboard.md) walks a
 submission end to end.
