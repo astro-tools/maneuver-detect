@@ -318,3 +318,42 @@ def test_duplicate_exposure_is_rejected() -> None:
 def test_negative_observation_years_is_rejected() -> None:
     with pytest.raises(ValueError, match="observation_years"):
         ObjectExposure(100, OrbitClass.LEO, -1.0)
+
+
+# --- per-class operating-point confidence (the cut the calibration pass publishes) ----------------
+
+
+def test_operating_point_confidence_is_the_lowest_admitted_detection() -> None:
+    labels = [_label(100, "2024-01-03"), _label(100, "2024-01-10")]
+    detections = [
+        _detection(100, "2024-01-03", 0.9),  # true positive
+        _detection(100, "2024-01-15", 0.7),  # false alarm (affordable at budget 1.0 FP)
+        _detection(100, "2024-01-10", 0.6),  # true positive
+    ]
+    # 1 sat-year -> budget 1.0 FP at the default operating point, so all three are admitted.
+    leo = class_metrics(
+        match_detections(detections, labels), [ObjectExposure(100, OrbitClass.LEO, 1.0)]
+    )[OrbitClass.LEO]
+    assert leo.operating_point_confidence == pytest.approx(0.6)  # the lowest admitted confidence
+
+
+def test_operating_point_confidence_is_none_when_nothing_is_admitted() -> None:
+    # One false alarm with a zero-FP budget: nothing is admitted, so there is no cut.
+    geo = class_metrics(
+        match_detections([_detection(300, "2024-01-05", 0.8)], []),
+        [ObjectExposure(300, OrbitClass.GEO, 0.0)],
+    )[OrbitClass.GEO]
+    assert geo.operating_point_confidence is None
+
+
+def test_operating_point_confidence_is_not_serialised() -> None:
+    # Exposed on the in-memory report but kept out of the release-frozen scoring JSON.
+    from maneuver_detect.benchmark import score
+
+    report = score(
+        [_detection(100, "2024-01-03", 0.9)],
+        [_label(100, "2024-01-03")],
+        [ObjectExposure(100, OrbitClass.LEO, 1.0)],
+    )
+    assert report.per_class[OrbitClass.LEO].operating_point_confidence == pytest.approx(0.9)
+    assert "operating_point_confidence" not in report.to_json()
