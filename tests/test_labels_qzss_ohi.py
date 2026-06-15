@@ -1,7 +1,7 @@
 """Tests for ``maneuver_detect.labels.qzss_ohi`` — the QZSS OHI executed-maneuver parser.
 
-The inline fixture reproduces a real ``ohi-qzs2.txt`` excerpt: a mass section (which the parser must
-ignore) followed by a maneuver section whose burns cluster into two campaigns.
+The inline fixtures reproduce real excerpts of both layouts: the 6-column IGSO ``ohi-qzs2.txt``
+(magnitude-only) and the 7-column GEO ``ohi-qzs6.txt`` (with the operator ``NS/EW`` type marker).
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from maneuver_detect.labels.qzss_ohi import parse_qzss_ohi
 from maneuver_detect.labels.record import SOURCE_QZSS_OHI, OrbitClass
+from maneuver_detect.schema import ManeuverType
 
 # A real ohi-qzs2.txt excerpt: a SATELLITE/MASS block (ignored) then a SATELLITE/MANEUVER block with
 # two same-day burns in Nov 2017 (one campaign) and two more ~52 days later (a second campaign).
@@ -35,6 +36,17 @@ _NO_MANEUVERS = """\
 #DATE TIME START(UTC),END(UTC),MASS(kg)
 2017-11-15 10:34:47,2018-01-06 06:55:39,2320
 #-SATELLITE/MASS
+"""
+
+# A real ohi-qzs6.txt excerpt: the 7-column GEO layout with an NS/EW marker. The Aug-22 NS burn and
+# the Aug-23 EW burn fall within a day (one campaign); the Sep-14 EW burn is a separate campaign.
+_OHI_QZS6_GEO = """\
+#+SATELLITE/MANEUVER
+#DATE TIME START(UTC),END(UTC),DURATION,NS/EW,DVX(m/s),DVY(m/s),DVZ(m/s)
+2025-08-22 13:44:42,2025-08-22 13:49:53,00:05:11,NS,0.006,-5.146,0.095
+2025-08-23 12:59:47,2025-08-23 13:00:12,00:00:25,EW,-0.098,0.0,0.002
+2025-09-14 15:59:51,2025-09-14 16:00:08,00:00:17,EW,-0.066,0.0,0.002
+#-SATELLITE/MANEUVER
 """
 
 
@@ -76,6 +88,17 @@ def test_orbit_class_is_passed_through() -> None:
         qzs_label="QZS-3",
     )
     assert label.orbit_class is OrbitClass.GEO  # QZS-3/6 are GEO, not IGSO
+
+
+def test_geo_layout_types_from_ns_ew_marker() -> None:
+    first, second = parse_qzss_ohi(
+        _OHI_QZS6_GEO, norad_id=62876, orbit_class=OrbitClass.GEO, qzs_label="QZS-6"
+    )
+    # The mixed NS+EW campaign collapses to one event; the dominant (larger-Δv) NS burn sets the
+    # type to cross-track. The standalone EW campaign is in-track.
+    assert first.maneuver_type is ManeuverType.CROSS_TRACK
+    assert first.delta_v == _mag(0.006, -5.146, 0.095) + _mag(-0.098, 0.0, 0.002)
+    assert second.maneuver_type is ManeuverType.IN_TRACK
 
 
 def test_no_maneuver_section_yields_no_labels() -> None:

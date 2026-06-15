@@ -325,11 +325,14 @@ ratifies the set. Every source was verified by a real headless fetch.
   reuse-with-attribution grant (CC-BY-4.0, "Source: Quasi-Zenith Satellite System website") →
   **labels are shipped** (D2). QZS-2/4/1R are inclined/eccentric geosynchronous (e≈0.075, i≈37–44°) —
   a **new IGSO class**; QZS-3/6 are equatorial → **GEO** (operator-Δv, breaking the GEO
-  self-label circularity for those objects). Two modelling choices (detail in the spike): the OHI Δv
-  **axis frame is undocumented**, so labels carry the frame-invariant **|Δv| magnitude only**
-  (`maneuver_type = None`) rather than a fabricated in-track/cross-track/radial split; and clustered
-  burns (a station-keeping campaign) are **collapsed into one event** (D4 granularity), the event Δv
-  being the sum of the burns' magnitudes.
+  self-label circularity for those objects). Two modelling choices (detail in the spike): the **GEO**
+  OHI files (QZS-3/6) carry an explicit **`NS/EW`** burn marker (north-south = inclination control →
+  cross-track, east-west = longitude control → in-track) used directly as the operator's own type,
+  while the **IGSO** files omit it and the raw `DVX/DVY/DVZ` frame is undocumented, so those labels
+  carry the frame-invariant **|Δv| magnitude only** (`maneuver_type = None`) rather than a fabricated
+  split; and clustered burns (a station-keeping campaign) are **collapsed into one event** (D4
+  granularity), the event Δv being the sum of the burns' magnitudes and its type the dominant burn's
+  marker.
 - **GEO — add NOAA GOES operator epochs.** The NOAA OSPO navigation summary (`navsum.txt`) names each
   GOES bird's last-maneuver day; it is US-Government **public domain** → labels shipped. It is a
   **live-state** file (latest maneuver only, day-of-year granularity), so the maneuver *history* is

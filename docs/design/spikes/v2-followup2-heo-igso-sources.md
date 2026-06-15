@@ -65,13 +65,16 @@ Quasi-Zenith Satellite System website" — redistribution-clean, so the **labels
 QZS-2/4/1R are inclined/eccentric geosynchronous (e≈0.075, i≈37–44°) → a **new IGSO class**; QZS-3/6
 are equatorial → **GEO** (operator-Δv, non-circular).
 
-Two modelling decisions the parser makes (and D15 ratifies):
+Two file layouts exist, found at ingest: the IGSO files (QZS-2/4/1R) are 6-column
+(`…,DURATION,DVX,DVY,DVZ`), while the GEO files (QZS-3/6) add an explicit `NS/EW` marker column
+(`…,DURATION,NS/EW,DVX,DVY,DVZ`). Two modelling decisions the parser makes (and D15 ratifies):
 
-- **Magnitude-only, no type.** The `DVX/DVY/DVZ` axes carry **no documented reference frame** in the
-  file, so a rigorous in-track/cross-track/radial classification is not derivable. The frame-invariant
-  `|Δv| = ‖(DVX, DVY, DVZ)‖` is kept; `maneuver_type` is left `None`. Recovering type if the frame is
-  ever confirmed is a future refinement, not a v0.3 deliverable. (QZSS labels therefore count toward
-  the Δv-labelled population but contribute no ground-truth type to the confusion matrix.)
+- **Type from the operator `NS/EW` marker where the file gives one.** The GEO files mark each burn
+  `NS` (north-south = inclination control → cross-track) or `EW` (east-west = longitude control →
+  in-track) — the operator's own classification, used directly. The IGSO files omit the marker, and
+  the raw `DVX/DVY/DVZ` axes carry **no documented reference frame**, so those labels are
+  magnitude-only (`maneuver_type = None`) rather than fabricating a split. Either way the
+  frame-invariant `|Δv| = ‖(DVX, DVY, DVZ)‖` is kept.
 - **Burns collapsed into events.** A station-keeping campaign appears as a cluster of burns hours
   apart (a two-impulse ± pair, or a multi-burn inclination campaign), then the next campaign is
   weeks-to-months later. Consecutive burns within a 2-day gap are collapsed into one event (the D4
