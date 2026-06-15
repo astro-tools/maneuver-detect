@@ -1,0 +1,1271 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Open dataset, models, and benchmark for detecting orbital maneuvers from public TLE history.">
+      
+      
+      
+        <link rel="canonical" href="https://astro-tools.github.io/maneuver-detect/decisions/">
+      
+      
+        <link rel="prev" href="../schema/">
+      
+      
+        <link rel="next" href="../api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Design decisions - maneuver-detect</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#design-decisions-d1d17" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="maneuver-detect" class="md-header__button md-logo" aria-label="maneuver-detect" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            maneuver-detect
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Design decisions
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/astro-tools/maneuver-detect" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    astro-tools/maneuver-detect
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="maneuver-detect" class="md-nav__button md-logo" aria-label="maneuver-detect" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    maneuver-detect
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/astro-tools/maneuver-detect" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    astro-tools/maneuver-detect
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dataset and labels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and the Hub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../benchmark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../leaderboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Leaderboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Output schema and Δv inversion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design decisions
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#d1-package-layout-stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D1 — Package layout + stack
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d2-dataset-distribution-recipe-first-hybrid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D2 — Dataset distribution — recipe-first hybrid
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d3-label-sources-class-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D3 — Label sources + class scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d4-labelling-granularity-matching-tolerance-detectability-floor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D4 — Labelling granularity + matching tolerance + detectability floor
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d5-v-inversion-type-rule-tolerance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D5 — Δv inversion + type rule + tolerance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d6-canonical-output-schema-detector-interface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D6 — Canonical output schema + Detector interface
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d7-benchmark-protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D7 — Benchmark protocol
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d8-reproducibility-versioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D8 — Reproducibility / versioning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d9-licensing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D9 — Licensing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d10-decoupling-guarantee" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D10 — Decoupling guarantee
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d11-irregular-sampling-input-encoding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D11 — Irregular-sampling input encoding
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d12-leaderboard-integrity-and-compute-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D12 — Leaderboard integrity and compute budget
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d13-expanded-label-sources-for-v02-dataset-growth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D13 — Expanded label sources for v0.2 dataset growth
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d14-foundation-model-baseline-the-foundation-extra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D14 — Foundation-model baseline + the [foundation] extra
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d15-expanded-label-sources-the-igso-class-for-v03-dataset-growth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D15 — Expanded label sources + the IGSO class for v0.3 dataset growth
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d16-hidden-label-competition-track-via-a-never-committed-forward-holdout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D16 — Hidden-label competition track via a never-committed forward holdout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d17-v03-score-protocol-bump-per-class-operating-point-baked-in-calibration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D17 — v0.3 score-protocol bump: per-class operating point + baked-in calibration
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#d1-package-layout-stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D1 — Package layout + stack
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d2-dataset-distribution-recipe-first-hybrid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D2 — Dataset distribution — recipe-first hybrid
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d3-label-sources-class-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D3 — Label sources + class scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d4-labelling-granularity-matching-tolerance-detectability-floor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D4 — Labelling granularity + matching tolerance + detectability floor
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d5-v-inversion-type-rule-tolerance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D5 — Δv inversion + type rule + tolerance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d6-canonical-output-schema-detector-interface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D6 — Canonical output schema + Detector interface
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d7-benchmark-protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D7 — Benchmark protocol
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d8-reproducibility-versioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D8 — Reproducibility / versioning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d9-licensing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D9 — Licensing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d10-decoupling-guarantee" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D10 — Decoupling guarantee
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d11-irregular-sampling-input-encoding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D11 — Irregular-sampling input encoding
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d12-leaderboard-integrity-and-compute-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D12 — Leaderboard integrity and compute budget
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d13-expanded-label-sources-for-v02-dataset-growth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D13 — Expanded label sources for v0.2 dataset growth
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d14-foundation-model-baseline-the-foundation-extra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D14 — Foundation-model baseline + the [foundation] extra
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d15-expanded-label-sources-the-igso-class-for-v03-dataset-growth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D15 — Expanded label sources + the IGSO class for v0.3 dataset growth
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d16-hidden-label-competition-track-via-a-never-committed-forward-holdout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D16 — Hidden-label competition track via a never-committed forward holdout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d17-v03-score-protocol-bump-per-class-operating-point-baked-in-calibration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D17 — v0.3 score-protocol bump: per-class operating point + baked-in calibration
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="design-decisions-d1d17">Design decisions (D1–D17)<a class="headerlink" href="#design-decisions-d1d17" title="Permanent link">&para;</a></h1>
+<p>The frozen decision record. It consolidates the prerequisite analysis (the dataset-redistribution,
+label-source, detectability-floor, Δv-inversion, irregular-sampling, foundation-model, and
+leaderboard-integrity studies) and the project charter into the decisions that fix the shape of the dataset,
+the benchmark, and the library contract. <strong>D1–D10 fix the v0.1 surface; D11–D13 the v0.2 additions</strong> — the
+learned baselines, the public leaderboard, and the dataset-growth pass; <strong>D14–D17 the v0.3 additions</strong> — the
+foundation-model baseline, the expanded dataset with the new IGSO class, the hidden-label competition design,
+and the score-protocol and calibration bump. Each decision states the call and its rationale; the implementable
+benchmark contract is on the <a href="../benchmark/">benchmark protocol</a> page, and the output schema and Δv inversion
+on the <a href="../schema/">schema reference</a> page.</p>
+<p>The record is <strong>frozen by release</strong> — each release's surface matches it, and any change is a version bump with
+a documented rationale.</p>
+<hr />
+<h2 id="d1-package-layout-stack">D1 — Package layout + stack<a class="headerlink" href="#d1-package-layout-stack" title="Permanent link">&para;</a></h2>
+<p>Package <code>maneuver_detect</code>, Python ≥ 3.10, Hatchling, <code>py.typed</code>:</p>
+<ul>
+<li>the public surface — <code>detect</code>, the <code>datasets</code> accessor, and the canonical maneuver type;</li>
+<li><code>data/</code> — the catalogue fetchers (CelesTrak, Space-Track), elset cleaning, and series assembly;</li>
+<li><code>labels/</code> — one module per label source plus the epoch-to-gap labeller;</li>
+<li><code>features/</code> — mean-element feature engineering;</li>
+<li><code>detectors/</code> — the classical reference detector in v0.1; learned detectors arrive in later releases;</li>
+<li><code>benchmark/</code> — splits, the matching rule, the metrics, and the scorer;</li>
+<li><code>physics.py</code> — the Δv inversion; <code>cli.py</code> — the <code>maneuver-detect</code> command line.</li>
+</ul>
+<p>Stack: numpy / pandas; sgp4; astropy (internal only); and the PyTorch / Lightning modelling stack and the
+Hugging Face Hub / <code>datasets</code> libraries, on which the learned baselines and the Hub-distributed artifacts
+build. The time-series foundation-model stack is an optional <code>[foundation]</code> extra so the base install stays
+light. Dev tooling: pytest, pytest-cov, ruff, mypy, mkdocs-material, mkdocstrings.</p>
+<h2 id="d2-dataset-distribution-recipe-first-hybrid">D2 — Dataset distribution — recipe-first hybrid<a class="headerlink" href="#d2-dataset-distribution-recipe-first-hybrid" title="Permanent link">&para;</a></h2>
+<p>Publish operator <strong>labels</strong>, a <strong>pinned reconstruction recipe</strong> (the fetch code, the NORAD catalogue, the
+per-object date ranges and query parameters, and a per-series SHA-256 content-hash manifest), and
+<strong>directly-shipped data only where it is openly licensed</strong>. <strong>Raw Space-Track data — and analysis derived
+from it — is never redistributed</strong>: the Space-Track User Agreement reaches derived analysis, and while TLEs
+are public-domain U.S.-Government works, the terms of use bind redistribution. Multi-year training history
+therefore comes from Space-Track <em>via the recipe</em>, with each user reconstructing it from their own account.
+Reconstruction is <strong>byte-deterministic</strong>. A recipe entry's epoch window scopes <strong>both</strong> the series fetch and
+that object's maneuver labels, so the committed label set is a function of the whole recipe, not the full
+announced history.</p>
+<h2 id="d3-label-sources-class-scope">D3 — Label sources + class scope<a class="headerlink" href="#d3-label-sources-class-scope" title="Permanent link">&para;</a></h2>
+<p>Sources: <strong>DORIS/IDS</strong> maneuver files (LEO altimetry, <em>with Δv</em> — the Δv-labelled core), <strong>ILRS</strong> maneuver
+history (which links to the same DORIS/IDS files), and <strong>GPS NANUs</strong> of the <code>FCSTDV</code> type (MEO,
+U.S.-Government public domain, epoch-only; SVN/PRN resolved to NORAD via the CelesTrak crosswalk). The
+Shorten benchmark is a <strong>development-only cross-check</strong> (unlicensed, not redistributed). SpotGEO is rejected
+(optical object detection, not maneuver labels). <strong>Class scope: LEO</strong> (primary, Δv-labelled) <strong>+ MEO</strong>
+(epoch-only) <strong>+ GEO</strong> (best-effort, epoch-only); <strong>HEO is deferred</strong> — sparse, a later addition.</p>
+<h2 id="d4-labelling-granularity-matching-tolerance-detectability-floor">D4 — Labelling granularity + matching tolerance + detectability floor<a class="headerlink" href="#d4-labelling-granularity-matching-tolerance-detectability-floor" title="Permanent link">&para;</a></h2>
+<p>A <strong>label is the inter-elset gap</strong> that brackets a maneuver epoch (per-gap, not per-second), because a
+maneuver is observable only as a discontinuity between consecutive elsets. The <strong>detection-matching tolerance
+is the labelled gap plus one adjacent gap on each side (≈ ±2 days)</strong>, set by the ~1-day median TLE cadence.
+The <strong>detectability floor</strong> (in-track Δv) is <strong>~cm/s in LEO and ~0.05–0.15 m/s in GEO</strong>, calibrated per
+object/class because it is TLE-quality-dependent; MEO is analytical and HEO not applicable. The false-positive
+unit is <strong>false alarms per satellite-year</strong>, with a primary operating point of <strong>1 FA/sat-year</strong>, reported as
+a curve. Detection <strong>must be multi-element</strong> — mean motion alone catches only a small fraction of maneuvers —
+and the benchmark scores precision/recall at a fixed false-alarm rate over the above-floor population.</p>
+<h2 id="d5-v-inversion-type-rule-tolerance">D5 — Δv inversion + type rule + tolerance<a class="headerlink" href="#d5-v-inversion-type-rule-tolerance" title="Permanent link">&para;</a></h2>
+<p>The inversion reads a Δv back out of the mean-element step across the gap: <strong>vis-viva</strong> for the in-track
+component (from the semi-major-axis change), the <strong>Gauss</strong> relations for the cross-track component (from the
+inclination and node change), and the residual eccentricity change for the weakly-observable radial
+component. The reported magnitude is <code>|Δv|</code> and the <strong>type is the dominant component</strong> — in-track ↔ Δa,
+cross-track ↔ Δi / ΔΩ, radial ↔ Δe. <strong>Element steps are detrended first</strong> to remove secular drift (notably
+the J2 nodal regression), which would otherwise read as a large spurious cross-track Δv. The implementation
+uses the <strong>full Gauss variational equations</strong>, not the linearised circular form. Δv is reported only above
+the floor, to within about ±25%; radial-dominated maneuvers are reported low-confidence.</p>
+<h2 id="d6-canonical-output-schema-detector-interface">D6 — Canonical output schema + Detector interface<a class="headerlink" href="#d6-canonical-output-schema-detector-interface" title="Permanent link">&para;</a></h2>
+<p>The canonical maneuver record (and the DataFrame <code>detect</code> returns) is <strong><code>epoch</code></strong> (UTC), <strong><code>confidence</code></strong>
+(calibrated, <code>[0, 1]</code>), <strong><code>type</code></strong> (in-track / cross-track / radial), <strong><code>delta_v_estimate</code></strong> (m/s), plus the
+provenance <strong><code>norad_id</code></strong>, <strong><code>elset_epoch_before</code></strong>, <strong><code>elset_epoch_after</code></strong> (the bounding epochs of the
+inter-elset gap). This is frozen as the library contract. A <strong><code>Detector</code> interface</strong> returns that schema,
+<strong><code>detect(history, model=...)</code></strong> dispatches by name, and the <strong><code>datasets</code></strong> accessor exposes
+<code>tle_history(...)</code>. v0.1 ships the classical detector behind <code>detect()</code>; learned models arrive later behind
+the same interface.</p>
+<h2 id="d7-benchmark-protocol">D7 — Benchmark protocol<a class="headerlink" href="#d7-benchmark-protocol" title="Permanent link">&para;</a></h2>
+<p>Per the <a href="../benchmark/">benchmark protocol</a>: <strong>leak-free splits by satellite and time</strong> (no satellite and no
+overlapping time window shared across train/val/test), seeded and byte-stable; the <strong>matching rule</strong> (the D4
+tolerance); the metric — <strong>precision/recall at a fixed false-alarm rate per class over the above-floor
+population</strong>, plus per-class type confusion; and a <strong>deterministic scorer</strong>. The protocol, the splits, and the
+schema are frozen by release.</p>
+<h2 id="d8-reproducibility-versioning">D8 — Reproducibility / versioning<a class="headerlink" href="#d8-reproducibility-versioning" title="Permanent link">&para;</a></h2>
+<p>Seeded, byte-stable splits; a <strong>pinned, reconstructable dataset with a content-hash manifest</strong> (D2); the
+dataset and checkpoints <strong>versioned in lockstep</strong>, each checkpoint carrying a <strong>model card</strong> (training data,
+splits, metrics, intended use); and a deterministic scorer that reproduces the reported baseline numbers from
+committed prediction files.</p>
+<h2 id="d9-licensing">D9 — Licensing<a class="headerlink" href="#d9-licensing" title="Permanent link">&para;</a></h2>
+<p><strong>Code is MIT</strong> (the org convention). <strong>Authored dataset artifacts</strong> — the label mapping, the splits, the
+manifests, the recipe, and features derived from open data — are <strong>CC-BY-4.0</strong>; openly-licensed pass-through
+data keeps its upstream licence; <strong>raw Space-Track data is not redistributed</strong>. <strong>Model weights</strong> are MIT or
+CC-BY-4.0, with foundation-model fine-tunes inheriting their base licence. All <strong>runtime dependencies are
+permissive</strong>. Because the label sources are open or U.S.-Government public domain, the dataset licence is not
+forced restrictive; the development-only Shorten labels stay out of the distribution.</p>
+<h2 id="d10-decoupling-guarantee">D10 — Decoupling guarantee<a class="headerlink" href="#d10-decoupling-guarantee" title="Permanent link">&para;</a></h2>
+<p><strong>GMAT-free</strong> — no GMAT dependency at runtime, in tests, or in the build. The foundation-model stack is an
+optional <strong><code>[foundation]</code></strong> extra the base install excludes. The deferred charter studies — irregular-sampling
+model input, foundation-model applicability, and leaderboard integrity / compute budget — belong to later
+milestones, not v0.1.</p>
+<hr />
+<h2 id="d11-irregular-sampling-input-encoding">D11 — Irregular-sampling input encoding<a class="headerlink" href="#d11-irregular-sampling-input-encoding" title="Permanent link">&para;</a></h2>
+<p>The frozen encoding the learned baselines consume from the unevenly-sampled element series:
+<strong>time-encoded element deltas, no interpolation.</strong> Resampling to a fixed grid is rejected — interpolating
+across a gap fabricates values on the very interval a maneuver lives in and roughly <strong>halves above-floor
+recall</strong>. Element deltas are fed <strong>signed</strong> (the non-linear model recovers the burn magnitude itself, and the
+sign carries direction for the D5 type classification); timing is carried as a bounded <code>Δt</code> (time2vec)
+block. Secular drift (the J2 nodal regression and apsidal precession) is removed by a two-sided local-linear
+fit before the delta, angles are carried as the eccentricity vector plus an unwrapped node, and
+normalisation is per-class robust (median/IQR) on <strong>train-split statistics only</strong>. <code>Δt</code> stays in the input
+because step-rate and detrending need it; it carries only a modest, structural correlation with the label, so
+the benchmark <strong>reports a timing-only baseline as the "cheating floor"</strong> a submission must beat (D7) and keeps
+the headline metric as recall over the above-floor population (D4).</p>
+<h2 id="d12-leaderboard-integrity-and-compute-budget">D12 — Leaderboard integrity and compute budget<a class="headerlink" href="#d12-leaderboard-integrity-and-compute-budget" title="Permanent link">&para;</a></h2>
+<p>The public leaderboard is a <strong>Gradio Space on the free Hugging Face CPU tier</strong> — scoring is pure
+element-arithmetic (the D4 matching and per-class counts), CPU-cheap and deterministic (D8), so the board
+needs no GPU; the only GPU spend in the project is offline baseline training. Submissions are a
+<code>predictions.json</code> of canonical maneuver records (the <a href="../schema/">schema</a>), and two surfaces keep it safe:
+the response is <strong>aggregate-only</strong> (per-class above-floor recall at the operating point plus the timing-only
+floor, never the per-label match table) and the submission is <strong>fixed-schema</strong> (the reader rejects any
+non-prediction payload, so a submission cannot carry a query). A courtesy <strong>rate limit of 5 scored
+submissions per user per UTC day</strong> guards against floods. <strong>Compute budget:</strong> both baselines are small
+(transformer ≈ 10⁷ parameters, BiLSTM ≈ 1–3 × 10⁶) on an <code>O(10⁵)</code>-window set, so a full v0.2 run — both
+baselines, a small sweep, and the finals — is <strong>under ~1 GPU-day and trains in hours on a single ≤ 24 GB
+GPU</strong>, no multi-GPU; a wall-clock and peak-memory acceptance gate is recorded on each checkpoint's model
+card.</p>
+<p><strong>Amendment — v0.2 ships a reproducibility board, not a hidden-label competition.</strong> The integrity design
+assumed hidden test labels, but the open dataset (D8/D9) publishes the full answer key:
+<code>dataset/v0.2/labels.json</code> commits every label and <code>splits.json</code> marks the <code>test</code> objects, and git history
+makes that irretractable. The hidden-label firewall is therefore unbuildable on the v0.2 test set and is
+<strong>dropped</strong> — the public/private-subset split is removed, and the aggregate-only response and the rate limit
+are kept as <strong>courtesy / abuse guards, not integrity guarantees</strong>. The board is a <strong>reproducibility /
+convenience board</strong> on the public splits (see the <a href="../leaderboard/">leaderboard guide</a>); a true hidden-label
+competition would need a separate, never-committed forward holdout and is deferred. One D2 consequence: the
+scorer's matching windows are real elset epochs (derived Space-Track data, not redistributed), so the board's
+scoring fixture is built offline from a credentialed reconstruction and supplied as private deploy-time data,
+not committed.</p>
+<h2 id="d13-expanded-label-sources-for-v02-dataset-growth">D13 — Expanded label sources for v0.2 dataset growth<a class="headerlink" href="#d13-expanded-label-sources-for-v02-dataset-growth" title="Permanent link">&para;</a></h2>
+<p>The v0.2 dataset-growth pass extends the D3 source set, resolving the "no public GEO maneuver-label source"
+gap and the open question on non-GPS GNSS notices:</p>
+<ul>
+<li><strong>MEO — add Galileo NAGUs</strong> (<code>PLN_MANV</code>): a second, independent MEO operator beyond GPS — public, no-auth,
+  machine-ingestible, GSAT → NORAD via the CelesTrak Galileo crosswalk, epoch-only. The terms are an
+  attribution-required reuse grant (© EU), so the labels are redistribution-clean and <strong>shipped</strong>. <strong>GLONASS
+  is excluded</strong> — its terms cap public reproduction more tightly than Space-Track and fail D2.</li>
+<li><strong>GEO — self-labelled longitude-shift.</strong> No openly-licensed GEO maneuver-label file exists to
+  redistribute, so v0.2 labels GEO best-effort from <strong>longitude-shift inspection of the reconstructed
+  series</strong>; GEO stays epoch-only. The operator-announced BeiDou feed remains a recipe-first option (the D2
+  pattern — ship the fetch recipe and parser, never redistributed labels), not shipped data.</li>
+<li><strong>Scope and licence otherwise unchanged (D3 / D9):</strong> LEO primary and Δv-labelled, HEO deferred; attribution
+  stacks per source, and no new redistribution restriction attaches.</li>
+</ul>
+<hr />
+<h2 id="d14-foundation-model-baseline-the-foundation-extra">D14 — Foundation-model baseline + the <code>[foundation]</code> extra<a class="headerlink" href="#d14-foundation-model-baseline-the-foundation-extra" title="Permanent link">&para;</a></h2>
+<p>v0.3 adds a <strong>foundation-model baseline</strong>: a forecast-residual detector that replaces the classical detector's
+hand-built quiet-dynamics prior with a pretrained time-series model. It forecasts each object's mean-element
+series, standardises the forecast residual, and thresholds it per orbit class; the D4 matcher, the D5 Δv
+inversion, the D6 schema, and the D7 scorer are all reused unchanged. The shipped backend is <strong>Chronos</strong>
+(<code>amazon/chronos-bolt-small</code>), chosen over TimesFM — which was wired as a second entry but <strong>removed</strong> when its
+zero-shot forecast proved unusable on noisy sub-daily LEO series. Both families publish Apache-2.0 checkpoints,
+so a fine-tune is redistributable (D9) and the dependency is permissive; the licence is confirmed per
+checkpoint revision at ingest. The detector lives behind the optional <strong><code>[foundation]</code></strong> extra
+(<code>= chronos-forecasting</code>) the base install excludes (D1 / D10), imports its backend lazily, and pulls the
+checkpoint from the Hub at runtime. One implementation finding fixed the recipe: the residual is standardised
+by a robust per-object MAD, not the model's predictive interval, which collapses toward zero on confident gaps.
+The v0.3 baseline ships <strong>zero-shot</strong> — it trains nothing, so it runs on the free CPU/GPU tiers; a light
+Chronos fine-tune is the optional polish, not the default.</p>
+<hr />
+<h2 id="d15-expanded-label-sources-the-igso-class-for-v03-dataset-growth">D15 — Expanded label sources + the IGSO class for v0.3 dataset growth<a class="headerlink" href="#d15-expanded-label-sources-the-igso-class-for-v03-dataset-growth" title="Permanent link">&para;</a></h2>
+<p>The v0.3 dataset-growth pass extends the D13 source set and adds a new scored orbit class, resolving the v0.2
+caveats that the GEO labels were self-derived (circular) and the second MEO operator (Galileo) was thin:</p>
+<ul>
+<li><strong>IGSO + GEO — add QZSS via the OHI files.</strong> Japan's Cabinet Office publishes a per-satellite <em>Operational
+  History Information</em> file carrying each Quasi-Zenith satellite's executed orbit-maintenance Δv — the only
+  surveyed operator feed besides DORIS that ships an executed Δv. QZS-2/4/1R are inclined and eccentric — a
+  <strong>new IGSO class</strong> (magnitude-only Δv, since the IGSO files omit the burn-direction marker); QZS-3/6 are
+  equatorial GEO and carry an operator Δv with a north-south / east-west type marker. Shipped under CC-BY-4.0
+  ("Source: Quasi-Zenith Satellite System website").</li>
+<li><strong>GEO — add NOAA GOES operator epochs.</strong> The NOAA OSPO navigation summary names each GOES bird's
+  last-maneuver day (US-Government public domain, shipped); the history is replayed from its Internet-Archive
+  snapshots. With QZSS, this moves GEO from self-labelled to operator-announced and breaks the v0.2 self-label
+  circularity.</li>
+<li><strong>MEO — Galileo back-catalogue.</strong> The same NAGU feed (D13), crawled over the full window, thickens MEO.</li>
+<li><strong>HEO — reserved, no objects in v0.3.</strong> No ingestible operator feed exists for the high-eccentricity regime
+  even credentialed, and self-labelling the noisy deep-space TLEs is perturbation-dominated, so HEO ships as a
+  reserved, empty class — <strong>IGSO is the v0.3 new scored class.</strong></li>
+<li><strong>Scope / licence (D3 / D9) otherwise unchanged:</strong> LEO primary and Δv-labelled; attribution stacks per source
+  (NOAA public domain, QZSS CC-BY, Galileo © EU); no new restriction attaches (BeiDou / GLONASS / EUMETSAT
+  excluded). A lockstep v0.3 dataset bump; the class-generic splits and per-class scorer carry the new IGSO
+  class through reporting automatically.</li>
+</ul>
+<hr />
+<h2 id="d16-hidden-label-competition-track-via-a-never-committed-forward-holdout">D16 — Hidden-label competition track via a never-committed forward holdout<a class="headerlink" href="#d16-hidden-label-competition-track-via-a-never-committed-forward-holdout" title="Permanent link">&para;</a></h2>
+<p>The design of the true hidden-label competition the <strong>D12 amendment</strong> deferred. The open dataset publishes
+every committed label, so a competition needs labels that were never committed: a <strong>forward holdout</strong> of
+maneuvers with epoch strictly after the public dataset's freeze, reconstructed from the same operator feeds via
+the D2 recipe and never written to <code>labels.json</code> / <code>splits.json</code>. Disjointness is purely temporal (a single
+<code>epoch &gt; freeze</code> cut), so the same object may appear on both sides. The holdout is <strong>rolling, keyed to the
+release cadence</strong> — at each release the matured window is revealed into the next public dataset and a fresh
+forward window becomes the new private holdout. On a never-committed holdout the full D12.3 firewall is
+restorable: hidden labels, a public/private split scored once at the reveal, the rate limit now an integrity
+bound, and the aggregate-only / fixed-schema round trip. LEO and MEO carry the competition from launch; the
+D15 operator feeds (QZSS, NOAA GOES) populate GEO/IGSO for real. The <strong>board itself is a follow-up build</strong>,
+gated on a v0.3 release first freezing the public dataset to define <code>epoch &gt; freeze</code>; this decision fixes its
+shape, not its code.</p>
+<hr />
+<h2 id="d17-v03-score-protocol-bump-per-class-operating-point-baked-in-calibration">D17 — v0.3 score-protocol bump: per-class operating point + baked-in calibration<a class="headerlink" href="#d17-v03-score-protocol-bump-per-class-operating-point-baked-in-calibration" title="Permanent link">&para;</a></h2>
+<p>The publish half of the uncertainty-calibration work, applied to the real v0.3 baselines (the calibration
+<em>machinery</em> — reliability diagrams, temperature scaling, split-conformal — landed earlier as model-agnostic
+code; see the <a href="../benchmark/#confidence-calibration">benchmark protocol</a>):</p>
+<ul>
+<li><strong>Per-class operating point in the report.</strong> <code>ScoreReport.to_json</code> gains a per-class
+  <code>operating_point_confidence</code> — the confidence cut admitted within the false-alarm budget at the headline
+  operating point. It is additive (every prior field byte-for-byte unchanged) but it <strong>changes the frozen
+  scorer artifact</strong>, so it is a v0.3-boundary change, not a v0.2 patch.</li>
+<li><strong>Calibration baked into the bundle, not re-fit at load.</strong> Each published detector carries a calibrator
+  (temperature scaling + a split-conformal predictor) <strong>fit on the val split only</strong> — never the test labels —
+  frozen into its bundle, so a loaded model emits calibrated confidence with no calibration data at inference
+  (the same can't-drift discipline as the model card). Old bundles without a calibrator load unchanged.</li>
+<li><strong>Reliability + operating points are published, not asserted.</strong> The per-class reliability curve and the
+  calibrated operating point are recorded into the bundle and rendered onto the model card; consistent with the
+  no-committed-real-data convention, the committed docs carry the methodology and a bundle→diagram helper, and
+  the real-data figures are rendered at the credentialed release-cut run.</li>
+<li><strong>The leaderboard tolerates the field by ignoring it</strong> — its public response stays a strict aggregate subset
+  (headline recall per class, the operating point, the timing floor), so the new field neither leaks into a
+  response nor changes scoring.</li>
+</ul>
+<hr />
+<p><em>Derived from the v0.1, v0.2, and v0.3 prerequisite studies and the project charter.</em></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/astro-tools/maneuver-detect" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.indexes", "navigation.instant", "navigation.sections", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
