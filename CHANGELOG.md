@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-15
+
+A foundation-model baseline, a new scored orbit class with operator-announced labels, and a meaningful
+confidence column. v0.3 adds a zero-shot forecast-residual detector built on a pretrained time-series
+model, grows the dataset with executed-Δv operator feeds that add an IGSO class and move GEO from
+self-labelled to operator-announced, and bakes uncertainty calibration into every published model so the
+confidence is calibrated per orbit class. The classical detector remains the in-package default; the
+learned and foundation baselines are the entries every new method is measured against.
+
+### Added
+
+- **Foundation-model baseline** — a forecast-residual detector that replaces the classical detector's
+  hand-built quiet-dynamics prior with a pretrained time-series model, selectable via
+  `detect(history, model="chronos-residual")`. It forecasts each object's mean-element series,
+  standardises the residual by a robust per-object MAD, and thresholds it per orbit class, reusing the
+  matcher, the Δv inversion, the schema, and the scorer unchanged. The shipped backend is Chronos
+  (`amazon/chronos-bolt-small`); it ships zero-shot — trains nothing and runs on the free CPU/GPU tiers —
+  behind the optional `[foundation]` extra, with the checkpoint pulled from the Hub at runtime.
+- **IGSO class + operator-announced label sources** — QZSS Operational History Information files
+  (executed orbit-maintenance Δv) add a new scored IGSO class and, with NOAA GOES navigation summaries,
+  move GEO from self-labelled to operator-announced; the Galileo NAGU back-catalogue thickens MEO. HEO is
+  reserved as an empty class (no ingestible operator feed exists for the regime). `DATASET_VERSION → 0.3.0`;
+  the v0.1 and v0.2 partitions stay pinned and byte-stable. Attribution stacks per source (NOAA public
+  domain, QZSS CC-BY-4.0, Galileo © EU).
+- **Uncertainty calibration** — reliability diagrams, temperature scaling, and split-conformal intervals as
+  model-agnostic machinery, plus published per-class operating points. Each published detector now carries a
+  calibrator fit on the val split only, frozen into its bundle, so a loaded model emits calibrated confidence
+  with no calibration data at inference; per-class reliability curves and operating points are rendered onto
+  the model cards.
+- **Class-balanced selection objective + per-class detection thresholds** — checkpoint selection on a
+  class-balanced criterion and per-class detection thresholds, so the dense GEO/IGSO classes no longer swamp
+  recall on the sparse ones.
+
+### Changed
+
+- The `[foundation]` extra (`chronos-forecasting`) is now exercised by the foundation baseline; it and the
+  base modelling stack remain permissively licensed (Apache-2.0 checkpoints), and the extra stays optional.
+- `ScoreReport.to_json` gains a per-class `operating_point_confidence` field — additive (every prior field
+  byte-for-byte unchanged) but a change to the frozen scorer artifact, so it is a v0.3-boundary change.
+- All published baselines (the classical detector, the BiLSTM and transformer learned models, and the
+  Chronos foundation baseline) were retrained and re-evaluated on the v0.3 (IGSO) dataset under the bumped
+  score protocol, with the train/test leak in the Chronos fine-tune corrected to the train split.
+
+Ships the frozen v0.3 design decisions D14–D17 alongside the v0.1/v0.2 set.
+
 ## [0.2.0] - 2026-06-13
 
 Learned baselines and the public benchmark. v0.2 adds two trained detectors, distributes the
