@@ -37,9 +37,9 @@ class BiLstmDetector(_LearnedDetector):
     Construct with a trained checkpoint (a :class:`~maneuver_detect.models.checkpoint.ModelBundle`
     or a path to one); the no-argument construction the registry uses falls back to the
     :data:`CHECKPOINT_ENV` path, and raises from :meth:`detect` if neither is available.
-    ``threshold`` overrides the bundle's default per-gap maneuver-probability threshold. All the
-    inference machinery is inherited from the shared
-    :class:`~maneuver_detect.detectors.learned._LearnedDetector`.
+    ``threshold`` overrides the bundle's per-gap threshold with one gate for every class, and
+    ``class_thresholds`` overrides its per-class gates. All inference machinery is inherited from
+    the shared :class:`~maneuver_detect.detectors.learned._LearnedDetector`.
     """
 
     name = "bilstm-base"

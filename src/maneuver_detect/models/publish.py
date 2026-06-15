@@ -157,6 +157,18 @@ def _test_report_table(report: dict[str, Any]) -> str:
     )
 
 
+def _class_threshold_line(class_thresholds: dict[str, float]) -> str:
+    """A one-line card summary of the per-class detection gates, or empty when none were tuned."""
+    if not class_thresholds:
+        return ""
+    ordered = sorted(class_thresholds, key=lambda k: (_CLASS_ORDER.get(k, 99), k))
+    gates = ", ".join(f"{key} {class_thresholds[key]:.3f}" for key in ordered)
+    return (
+        f"\n- **Per-class detection thresholds:** {gates} "
+        "(a class without its own gate uses the default above)."
+    )
+
+
 def build_model_card(bundle: ModelBundle, name: str, *, version: str = DATASET_VERSION) -> str:
     """Generate the Hugging Face model card (``README.md``) for ``bundle`` from its provenance.
 
@@ -172,6 +184,7 @@ def build_model_card(bundle: ModelBundle, name: str, *, version: str = DATASET_V
     # provenance table (a nested dict would render as one unreadable cell).
     test_report = metadata.pop("test_report", None)
     eval_block = _test_report_table(test_report) if isinstance(test_report, dict) else ""
+    class_threshold_line = _class_threshold_line(bundle.class_thresholds)
     dataset_version = str(metadata.get("dataset_version", version))
     recall = metadata.get("best_val_recall")
     recall_line = (
@@ -223,7 +236,7 @@ maneuvers = detect(history, model="{name}")
   inputs are standardised with the **train-split** per-class statistics frozen into this checkpoint,
   so inference reproduces training-time standardisation.
 - **Window / stride:** {bundle.window} / {bundle.stride}.
-- **Default detection threshold:** {bundle.threshold:.3f}.
+- **Default detection threshold:** {bundle.threshold:.3f}.{class_threshold_line}
 - **Inference:** CPU-only; the bundle ships the network weights, the normaliser, and these
   parameters together, so loading it never needs the training stack.
 

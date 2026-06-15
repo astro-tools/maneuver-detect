@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from maneuver_detect.features.normalize import ClassNormaliser
     from maneuver_detect.labels.record import ManeuverLabel
     from maneuver_detect.models.bilstm import BiLstmConfig
+    from maneuver_detect.models.evaluate import SelectionObjective
     from maneuver_detect.models.transformer import TransformerConfig
 
 __all__ = ["ValBenchmark", "train_bilstm", "train_transformer"]
@@ -70,11 +71,17 @@ class ValBenchmark:
             be present; extra objects are ignored by the scorer).
         labels: The full label set — the scorer era-scopes it to the val partition.
         split: The leak-free temporal split whose VAL partition is scored each epoch.
+        objective: The class-balance of the per-epoch selection score —
+            :data:`~maneuver_detect.models.evaluate.SelectionObjective`. ``"pooled"`` (default,
+            label-count-weighted) keeps the unchanged behaviour; ``"macro"`` weights every orbit
+            class equally, so a later epoch that keeps training the GEO signal can win even though
+            GEO holds the minority of labels.
     """
 
     series_by_norad: Mapping[int, pd.DataFrame]
     labels: Sequence[ManeuverLabel]
     split: TemporalSplit
+    objective: SelectionObjective = "pooled"
 
 
 class _RestoreBestWeights(Callback):
@@ -115,11 +122,12 @@ class _ValBenchmarkSelection(Callback):
 
     Each training epoch a detector is built from the current weights (and the train-split
     normaliser) and scored on the val partition through the same benchmark the leaderboard uses; the
-    highest-recall weights are snapshotted and restored before the bundle is frozen. Selection is
-    therefore on the metric we report, not the loss surrogate. ``patience`` early-stops when the val
-    recall has not improved for that many epochs (a *recall* plateau, unlike the loss one). The
-    detector is built through the architecture's ``detector_factory`` so the same callback serves
-    either baseline.
+    highest-:func:`~maneuver_detect.models.evaluate.objective_recall` weights (under the spec's
+    ``objective`` — ``"pooled"`` or ``"macro"``) are snapshotted and restored before the bundle is
+    frozen. Selection is therefore on the metric we report, not the loss surrogate. ``patience``
+    early-stops when the val recall has not improved for that many epochs (a *recall* plateau,
+    unlike the loss one). The detector is built through the architecture's ``detector_factory`` so
+    the same callback serves either baseline.
     """
 
     def __init__(
@@ -150,7 +158,7 @@ class _ValBenchmarkSelection(Callback):
         # Deferred so the inference / benchmark stack is not pulled in unless this mode is used.
         from maneuver_detect.benchmark import SplitName
         from maneuver_detect.models.evaluate import (
-            pooled_above_floor_recall,
+            objective_recall,
             score_on_temporal_split,
         )
 
@@ -174,7 +182,7 @@ class _ValBenchmarkSelection(Callback):
             self._spec.split,
             partition=SplitName.VAL,
         )
-        score = pooled_above_floor_recall(report)
+        score = objective_recall(report, self._spec.objective)
         if self.best_score is None or score > self.best_score:
             self.best_score = score
             self._best_state = state

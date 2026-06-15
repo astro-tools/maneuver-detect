@@ -63,7 +63,12 @@ class ModelBundle:
         train_hparams: The optimisation hyper-parameters used (provenance).
         window: The window length the model trained on (used at inference).
         stride: The window stride (used at inference to reduce overlapping predictions).
-        threshold: The per-gap maneuver-probability threshold the detector defaults to.
+        threshold: The per-gap maneuver-probability threshold the detector defaults to — the gate
+            for any orbit class absent from ``class_thresholds``.
+        class_thresholds: Optional per-orbit-class detection thresholds (``OrbitClass`` value →
+            gate), so GEO can take a lower gate than LEO/MEO. Empty by default — a scalar
+            ``threshold`` then gates every class — so a checkpoint saved before per-class tuning
+            loads and behaves unchanged.
         metadata: Free-form provenance (seed, dataset version, measured training cost, scores).
     """
 
@@ -74,6 +79,7 @@ class ModelBundle:
     window: int
     stride: int
     threshold: float
+    class_thresholds: dict[str, float] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -87,6 +93,7 @@ def save_bundle(bundle: ModelBundle, path: str | Path) -> None:
         "window": bundle.window,
         "stride": bundle.stride,
         "threshold": bundle.threshold,
+        "class_thresholds": bundle.class_thresholds,
         "metadata": bundle.metadata,
     }
     torch.save(payload, Path(path))
@@ -118,6 +125,11 @@ def load_bundle(path: str | Path, *, map_location: str = "cpu") -> ModelBundle:
         window=int(payload["window"]),
         stride=int(payload["stride"]),
         threshold=float(payload["threshold"]),
+        # Not a required key: a checkpoint saved before per-class tuning has none, and the scalar
+        # threshold then gates every class (the back-compatible fallback).
+        class_thresholds={
+            str(key): float(value) for key, value in payload.get("class_thresholds", {}).items()
+        },
         metadata=payload.get("metadata", {}),
     )
 
