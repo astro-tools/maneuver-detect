@@ -57,8 +57,17 @@ FloatArray = npt.NDArray[np.float64]
 MANEUVER = "maneuver"
 FALSE_ALARM = "false_alarm"
 
-#: Keeps :func:`_logit` finite when a confidence sits exactly at 0 or 1.
-_EPS = 1e-6
+#: The logit clamp catches only confidences that have *saturated to exactly 0 or 1* (where the logit
+#: is infinite), pinning them to the nearest representable interior value. It deliberately does NOT
+#: clamp merely-near-boundary values: every **distinct** interior confidence must keep a distinct
+#: logit so calibration stays strictly order-preserving — a monotonic relabel that never collapses
+#: two distinct detector confidences into the *same* calibrated value. A coarse clamp here (a former
+#: 1e-6) silently did exactly that to the saturating forecast-residual detector, whose confidence is
+#: ``1 - exp(-z/threshold)`` and exceeds ``1 - 1e-6`` for any strong detection: distinct detections
+#: collapsed to a tie, and the scorer's deterministic false-alarm-first tie-break then admitted the
+#: tied false alarms ahead of the true positives, zeroing recall in a small-FA-budget class.
+_HI = float(np.nextafter(1.0, 0.0))  # the largest double strictly below 1
+_LO = 1.0 - _HI  # the matching floor strictly above 0
 
 
 def _as_pairs(confidences: npt.ArrayLike, outcomes: npt.ArrayLike) -> tuple[FloatArray, FloatArray]:
@@ -84,7 +93,7 @@ def _as_pairs(confidences: npt.ArrayLike, outcomes: npt.ArrayLike) -> tuple[Floa
 
 
 def _logit(p: FloatArray) -> FloatArray:
-    clamped = np.clip(p, _EPS, 1.0 - _EPS)
+    clamped = np.clip(p, _LO, _HI)
     return np.asarray(np.log(clamped / (1.0 - clamped)), dtype=np.float64)
 
 
