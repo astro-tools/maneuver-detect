@@ -62,6 +62,7 @@ def test_empty_sample_scores_zero() -> None:
         ([0.5, 0.5], [1.0], "same shape"),
         ([1.5], [1.0], r"\[0, 1\]"),
         ([0.5], [2.0], "0.0 .* or 1.0"),
+        ([float("nan"), 0.5], [1.0, 0.0], "finite"),  # a NaN must not slip past the range check
     ],
 )
 def test_input_guard_rejects_bad_pairs(
@@ -111,6 +112,12 @@ def test_temperature_transform_is_monotonic_and_in_range() -> None:
 def test_temperature_fit_rejects_empty_sample() -> None:
     with pytest.raises(ValueError, match="empty sample"):
         TemperatureScaling.fit([], [])
+
+
+def test_temperature_transform_rejects_non_finite() -> None:
+    # A NaN confidence must not pass through transform un-flagged (it would emit a NaN confidence).
+    with pytest.raises(ValueError, match="finite"):
+        TemperatureScaling(temperature=2.0).transform([0.5, float("nan")])
 
 
 # --- split conformal ---------------------------------------------------------------------------
