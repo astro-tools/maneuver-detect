@@ -155,6 +155,65 @@ def test_load_bundle_without_class_thresholds_is_back_compatible(tmp_path: Path)
     assert load_bundle(path).class_thresholds == {}
 
 
+def test_save_load_round_trips_calibration(tmp_path: Path) -> None:
+    from maneuver_detect.calibration import BundledCalibration, ReliabilityBin, ReliabilityCurve
+
+    calibration = BundledCalibration(
+        temperature=1.7,
+        conformal_q=0.4,
+        conformal_alpha=0.1,
+        reliability={
+            "LEO": ReliabilityCurve(
+                bins=(
+                    ReliabilityBin(
+                        lo=0.0, hi=0.5, count=2, mean_confidence=0.3, empirical_precision=0.25
+                    ),
+                )
+            ),
+            # A sparse class: an empty bin round-trips its None mean/precision.
+            "IGSO": ReliabilityCurve(
+                bins=(
+                    ReliabilityBin(
+                        lo=0.0, hi=0.5, count=0, mean_confidence=None, empirical_precision=None
+                    ),
+                )
+            ),
+        },
+        ece={"LEO": 0.12, "IGSO": 0.0},
+    )
+    bundle = ModelBundle(
+        network_config={"network": "bilstm"},
+        state_dict={},
+        normaliser={},
+        train_hparams={},
+        window=64,
+        stride=32,
+        threshold=0.5,
+        calibration=calibration,
+    )
+    path = tmp_path / "calibrated.pt"
+    save_bundle(bundle, path)
+    assert load_bundle(path).calibration == calibration
+
+
+def test_load_bundle_without_calibration_is_back_compatible(tmp_path: Path) -> None:
+    # A checkpoint saved before the calibration slot has no calibration key; it must still load,
+    # with calibration None (so the detector emits raw, uncalibrated confidence).
+    payload = {
+        "network_config": {"network": "bilstm"},
+        "state_dict": {},
+        "normaliser": {},
+        "train_hparams": {},
+        "window": 64,
+        "stride": 32,
+        "threshold": 0.5,
+        # "calibration" deliberately omitted (a pre-calibration checkpoint).
+    }
+    path = tmp_path / "legacy.pt"
+    torch.save(payload, path)
+    assert load_bundle(path).calibration is None
+
+
 def test_load_bundle_reports_a_missing_required_key_clearly(tmp_path: Path) -> None:
     # A truncated or version-mismatched Hub artifact (here, the train-split normaliser dropped) must
     # surface to the detect() caller as a clear typed error naming the missing field, not a bare

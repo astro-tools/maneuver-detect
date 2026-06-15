@@ -4,7 +4,7 @@ The hosted Space scores submissions against the frozen test split with the shipp
 scorer. To do that without a Space-Track reconstruction at request time it needs the *derived*
 scoring inputs — the per-object floor that flags each label above- or below-detectability, the
 inter-elset gap each label's matching window spans, and the era-only observation span. This script
-reconstructs the committed v0.2 dataset from Space-Track (credentialed; the elements are never
+reconstructs the committed dataset from Space-Track (credentialed; the elements are never
 written to the repo, per D2), builds those inputs through the same ``models.evaluate`` path the
 local scorer uses, and writes:
 
@@ -13,7 +13,7 @@ local scorer uses, and writes:
 
 The fixture's matching windows are real elset epochs (derived Space-Track data, D2), so this bundle
 is **private deploy-time data**: upload ``<out>/`` to a private Hugging Face Dataset the Space
-reads, do not commit it. The held-out labels it encodes are already public (the v0.2 answer key is
+reads, do not commit it. The held-out labels it encodes are already public (the answer key is
 committed — the D12 amendment), so this leaks nothing new; the bundle is private only to honour D2.
 
 CPU only, no GPU. Needs Space-Track credentials. Set SPACETRACK_USERNAME / SPACETRACK_PASSWORD:
@@ -35,12 +35,15 @@ from pathlib import Path
 import pandas as pd
 
 from maneuver_detect.benchmark import predictions_to_json
+from maneuver_detect.datasets.catalogue import DATASET_VERSION
 from maneuver_detect.labels.record import ManeuverLabel, OrbitClass
 from maneuver_detect.leaderboard import ScoringFixture, fixture_to_json
 from maneuver_detect.schema import ManeuverType
 
 _ROOT = Path(__file__).resolve().parents[1]
-_DATA = _ROOT / "dataset" / "v0.2"
+# Track the bundled catalogue version, so the seed/fixture reconstruction stays in lockstep with the
+# committed dataset (a catalogue bump repoints this without editing the builder).
+_DATA = _ROOT / "dataset" / f"v{'.'.join(DATASET_VERSION.split('.')[:2])}"
 
 # The published D11 timing-only "cheating floor": the rank-AUC a Δt-only model reaches, the score a
 # submission must beat to be doing more than reading gap lengths. A benchmark constant (V5/D11),
@@ -49,7 +52,7 @@ _TIMING_FLOOR = {"LEO": 0.62, "GEO": 0.68}
 
 
 def _load_labels_by_norad(path: Path) -> dict[int, list[ManeuverLabel]]:
-    """Parse ``dataset/v0.2/labels.json`` into ManeuverLabels keyed by NORAD id."""
+    """Parse the dataset's ``labels.json`` into ManeuverLabels keyed by NORAD id."""
     by_norad: dict[int, list[ManeuverLabel]] = defaultdict(list)
     for record in json.loads(path.read_text()):
         norad_id = record["norad_id"]
@@ -77,7 +80,7 @@ def _has_credentials() -> bool:
 
 
 def _guide_without_credentials() -> int:
-    print("Building the leaderboard bundle reconstructs the real v0.2 dataset from Space-Track.")
+    print("Building the leaderboard bundle reconstructs the real dataset from Space-Track.")
     print("Set the two environment variables and re-run (CPU only, no GPU):")
     print("  export SPACETRACK_USERNAME='you@example.com'")
     print("  export SPACETRACK_PASSWORD='your-space-track-password'")
@@ -138,7 +141,7 @@ def main() -> int:
     dataset_version = str(json.loads(splits_text)["dataset_version"])
     split = TemporalSplit.from_json(splits_text)
 
-    print("Reconstructing the v0.2 dataset from Space-Track (credentialed, rate-limited)...")
+    print("Reconstructing the dataset from Space-Track (credentialed, rate-limited)...")
     dataset = reconstruct(recipe(), SpacetrackFetcher(), labels_by_norad)
     series_by_norad = {obj.norad_id: obj.series for obj in dataset.objects}
 

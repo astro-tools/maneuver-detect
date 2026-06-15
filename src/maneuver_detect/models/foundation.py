@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from maneuver_detect.benchmark import ScoreReport, SplitName, TemporalSplit
+    from maneuver_detect.calibration import BundledCalibration
     from maneuver_detect.detectors.foundation import Forecaster, _ForecastResidualDetector
     from maneuver_detect.labels.record import ManeuverLabel
 
@@ -112,6 +113,10 @@ class FoundationBundle:
         metadata: Free-form provenance (dataset version, the held-out ``test_report``, the measured
             single-GPU cost) the model card is generated from, so the card cannot drift from the
             weights.
+        calibration: The fitted, val-only uncertainty calibration baked into the bundle (a
+            :class:`~maneuver_detect.calibration.BundledCalibration`), applied to the detector's
+            emitted ``confidence`` at inference. ``None`` for a bundle calibrated before this slot
+            existed (it then emits raw confidence unchanged).
     """
 
     backend: str
@@ -121,6 +126,7 @@ class FoundationBundle:
     class_thresholds: dict[str, float]
     finetune_state: dict[str, torch.Tensor] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    calibration: BundledCalibration | None = None
 
 
 def save_foundation_bundle(bundle: FoundationBundle, path: str | Path) -> None:
@@ -133,6 +139,7 @@ def save_foundation_bundle(bundle: FoundationBundle, path: str | Path) -> None:
         "class_thresholds": bundle.class_thresholds,
         "finetune_state": bundle.finetune_state,
         "metadata": bundle.metadata,
+        "calibration": None if bundle.calibration is None else bundle.calibration.to_dict(),
     }
     torch.save(payload, Path(path))
 
@@ -163,7 +170,19 @@ def load_foundation_bundle(path: str | Path, *, map_location: str = "cpu") -> Fo
         class_thresholds=dict(payload["class_thresholds"]),
         finetune_state=payload.get("finetune_state"),
         metadata=payload.get("metadata", {}),
+        # Not a required key: a bundle calibrated before this slot existed has none, and the
+        # detector emits raw confidence (the back-compatible fallback).
+        calibration=_load_calibration(payload.get("calibration")),
     )
+
+
+def _load_calibration(data: Any) -> BundledCalibration | None:
+    """Reconstruct a bundle's :class:`BundledCalibration` from its payload (``None`` if absent)."""
+    if data is None:
+        return None
+    from maneuver_detect.calibration import BundledCalibration
+
+    return BundledCalibration.from_dict(data)
 
 
 def zero_shot_bundle(
@@ -335,11 +354,41 @@ def calibrate_and_score(
         bundle, series_by_norad, labels, split, forecaster=resolved, candidates=candidates
     )
     _logger.info(
-        "calibrated threshold %.2f (val recall %.3f); scoring on the test split...",
+        "calibrated threshold %.2f (val recall %.3f); fitting the confidence calibration on val...",
         tuning.threshold,
         tuning.recall,
     )
+    bundle = _fit_and_bake_calibration(bundle, series_by_norad, labels, split, forecaster=resolved)
+    _logger.info("scoring on the test split...")
     return score_bundle(bundle, series_by_norad, labels, split, forecaster=resolved)
+
+
+def _fit_and_bake_calibration(
+    bundle: FoundationBundle,
+    series_by_norad: Mapping[int, pd.DataFrame],
+    labels: Sequence[ManeuverLabel],
+    split: TemporalSplit,
+    *,
+    forecaster: Forecaster,
+) -> FoundationBundle:
+    """Fit the val-only confidence calibration and bake it into the bundle (skips if val is empty).
+
+    Builds the bundle's detector (still uncalibrated — the calibration slot is filled here) and fits
+    a :class:`~maneuver_detect.calibration.BundledCalibration` on its val-split samples, so the
+    scored and published detector emits calibrated confidence. A bundle whose val split yields no
+    matched detection ships uncalibrated rather than failing the run.
+    """
+    from maneuver_detect.models.evaluate import fit_calibration_on_val
+
+    detector = _bundle_detector(bundle, forecaster, threshold=None)
+    try:
+        calibration = fit_calibration_on_val(detector, series_by_norad, labels, split)
+    except ValueError:
+        _logger.warning(
+            "no matched val detections to calibrate confidence on; shipping uncalibrated confidence"
+        )
+        return bundle
+    return replace(bundle, calibration=calibration)
 
 
 def build_forecaster_for(bundle: FoundationBundle) -> Forecaster:
@@ -355,8 +404,14 @@ def _bundle_detector(
     from maneuver_detect.detectors.foundation import ChronosResidualDetector
 
     detector_cls = {"chronos": ChronosResidualDetector}[bundle.backend]
+    # Carry the bundle's baked-in calibrator so a scored detector emits the same calibrated
+    # confidence a published one does (the forecaster path skips the bundle-loading _load).
+    calibrator = None if bundle.calibration is None else bundle.calibration.temperature_scaling()
     return detector_cls(
-        forecaster=forecaster, class_thresholds=bundle.class_thresholds, threshold=threshold
+        forecaster=forecaster,
+        class_thresholds=bundle.class_thresholds,
+        threshold=threshold,
+        calibrator=calibrator,
     )
 
 

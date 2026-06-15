@@ -346,8 +346,11 @@ def test_operating_point_confidence_is_none_when_nothing_is_admitted() -> None:
     assert geo.operating_point_confidence is None
 
 
-def test_operating_point_confidence_is_not_serialised() -> None:
-    # Exposed on the in-memory report but kept out of the release-frozen scoring JSON.
+def test_operating_point_confidence_is_serialised() -> None:
+    # The v0.3 protocol bump persists the per-class operating point into the scoring JSON; v0.2 kept
+    # it on the in-memory report only.
+    import json
+
     from maneuver_detect.benchmark import score
 
     report = score(
@@ -356,4 +359,5 @@ def test_operating_point_confidence_is_not_serialised() -> None:
         [ObjectExposure(100, OrbitClass.LEO, 1.0)],
     )
     assert report.per_class[OrbitClass.LEO].operating_point_confidence == pytest.approx(0.9)
-    assert "operating_point_confidence" not in report.to_json()
+    payload = json.loads(report.to_json())
+    assert payload["per_class"]["LEO"]["operating_point_confidence"] == pytest.approx(0.9)

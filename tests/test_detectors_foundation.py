@@ -111,6 +111,24 @@ def test_threshold_gates_detection_count() -> None:
     assert len(high) <= len(low)
 
 
+def test_baked_calibration_is_applied_to_emitted_confidence() -> None:
+    # A calibrated bundle's _load installs its temperature on the detector; detect() then emits
+    # calibrated confidence, leaving the detections (epoch/norad) otherwise unchanged.
+    from maneuver_detect.calibration import TemperatureScaling
+
+    frame = synthetic_series(norad_id=1, seed=3, n=120, burns=(Burn(45, "in_track_ms", 4.0),))
+    raw = _stand_in_detector(threshold=2.0).detect(frame)
+    assert not raw.empty
+
+    detector = _stand_in_detector(threshold=2.0)
+    detector._calibrator = TemperatureScaling(2.0)  # what _load installs from bundle.calibration
+    out = detector.detect(frame)
+    assert out[["norad_id", "epoch"]].equals(raw[["norad_id", "epoch"]])
+    expected = TemperatureScaling(2.0).transform(raw["confidence"].to_numpy())
+    assert out["confidence"].to_numpy() == pytest.approx(expected)
+    assert out["confidence"].between(0.0, 1.0).all()
+
+
 def test_empty_history_returns_empty_canonical_frame() -> None:
     out = _stand_in_detector().detect(synthetic_series(norad_id=1, seed=0).iloc[0:0])
     assert list(out.columns) == list(COLUMNS)

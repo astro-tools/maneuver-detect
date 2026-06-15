@@ -30,7 +30,7 @@ from maneuver_detect.benchmark import (
     score,
 )
 from maneuver_detect.benchmark.matching import match_detections
-from maneuver_detect.calibration import CalibrationSamples, TemperatureScaling
+from maneuver_detect.calibration import BundledCalibration, CalibrationSamples, TemperatureScaling
 from maneuver_detect.detectors.base import Detector
 from maneuver_detect.detectors.classical import ClassicalDetector
 from maneuver_detect.labels.labeller import label_series
@@ -45,6 +45,7 @@ __all__ = [
     "ThresholdTuning",
     "calibration_samples_on_val",
     "detections_for_partition",
+    "fit_calibration_on_val",
     "fit_temperature_on_val",
     "macro_above_floor_recall",
     "objective_recall",
@@ -527,3 +528,31 @@ def fit_temperature_on_val(
     if confidences.size == 0:
         raise ValueError("no matched detections on the val split to calibrate on")
     return TemperatureScaling.fit(confidences, outcomes)
+
+
+def fit_calibration_on_val(
+    detector: Detector,
+    series_by_norad: Mapping[int, pd.DataFrame],
+    labels: Sequence[ManeuverLabel],
+    split: TemporalSplit,
+    *,
+    partition: SplitName = SplitName.VAL,
+    alpha: float = 0.1,
+    n_bins: int = 10,
+) -> BundledCalibration:
+    """Fit the bundled, per-orbit-class calibration on the detector's val-split samples (val only).
+
+    Runs :func:`calibration_samples_on_val` and hands the per-class ``(confidence, outcome)`` pairs
+    to :meth:`~maneuver_detect.calibration.BundledCalibration.fit`, which pools them for the
+    temperature and conformal predictor and measures per-class reliability / ECE. The result is the
+    calibration baked into a published bundle, so its detector emits calibrated confidence. Raises
+    :class:`ValueError` if the partition yields no matched detection to calibrate on.
+    """
+    samples = calibration_samples_on_val(
+        detector, series_by_norad, labels, split, partition=partition
+    )
+    return BundledCalibration.fit(
+        {orbit_class.value: sample for orbit_class, sample in samples.items()},
+        alpha=alpha,
+        n_bins=n_bins,
+    )

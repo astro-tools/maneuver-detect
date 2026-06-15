@@ -87,6 +87,54 @@ def test_bundle_round_trips_through_disk(tmp_path: Path) -> None:
     assert loaded.finetune_state is not None
     assert torch.equal(loaded.finetune_state["w"], torch.ones(3))
     assert loaded.metadata["mode"] == "fine-tuned"
+    assert loaded.calibration is None
+
+
+def test_bundle_round_trips_calibration(tmp_path: Path) -> None:
+    from maneuver_detect.calibration import BundledCalibration, ReliabilityBin, ReliabilityCurve
+
+    calibration = BundledCalibration(
+        temperature=1.3,
+        conformal_q=0.6,
+        conformal_alpha=0.1,
+        reliability={
+            "GEO": ReliabilityCurve(
+                bins=(
+                    ReliabilityBin(
+                        lo=0.5, hi=1.0, count=3, mean_confidence=0.7, empirical_precision=0.66
+                    ),
+                )
+            )
+        },
+        ece={"GEO": 0.08},
+    )
+    bundle = FoundationBundle(
+        backend="chronos",
+        checkpoint_id="amazon/chronos-bolt-small",
+        revision="abc123",
+        context_length=64,
+        class_thresholds={"GEO": 3.5},
+        calibration=calibration,
+    )
+    path = tmp_path / "calibrated.pt"
+    save_foundation_bundle(bundle, path)
+    assert load_foundation_bundle(path).calibration == calibration
+
+
+def test_load_foundation_bundle_without_calibration_is_back_compatible(tmp_path: Path) -> None:
+    # A bundle calibrated before the slot existed has no calibration key; it must still load, with
+    # calibration None (so the detector emits raw confidence).
+    payload = {
+        "backend": "chronos",
+        "checkpoint_id": "amazon/chronos-bolt-small",
+        "revision": "abc123",
+        "context_length": 64,
+        "class_thresholds": {"GEO": 3.5},
+        # "calibration" deliberately omitted (a pre-calibration bundle).
+    }
+    path = tmp_path / "legacy.pt"
+    torch.save(payload, path)
+    assert load_foundation_bundle(path).calibration is None
 
 
 def test_load_rejects_a_non_bundle(tmp_path: Path) -> None:
@@ -185,6 +233,9 @@ def test_calibrate_and_score_runs_the_full_flow() -> None:
     # The bundle came out calibrated (val) and scored (test): both rounds rode through.
     assert set(bundle.class_thresholds) == {oc.value for oc in OrbitClass}
     assert "calibration" in bundle.metadata
+    # The confidence calibration was fit on val and baked into the bundle (val-only, no test leak).
+    assert bundle.calibration is not None
+    assert bundle.calibration.temperature > 0.0
     assert isinstance(bundle.metadata["test_report"]["per_class"], dict)
 
 

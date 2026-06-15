@@ -232,6 +232,72 @@ def test_scorer_reproduces_the_committed_scores() -> None:
     assert report.to_json() == _SCORES.read_text(encoding="utf-8")
 
 
+def test_recall_is_invariant_to_monotonic_confidence_calibration() -> None:
+    # A monotonic confidence calibration must not change the scored recall: the benchmark ranks by
+    # confidence, so a strictly order-preserving relabel leaves the ranking — and the operating
+    # point — unchanged. Regression guard: calibration once collapsed saturating confidences (all
+    # > 1 - 1e-6) into a tie that the deterministic FP-first tie-break then resolved against recall,
+    # zeroing a small-false-alarm-budget class.
+    from maneuver_detect.calibration import TemperatureScaling, apply_calibration
+    from maneuver_detect.schema import to_frame
+
+    labels = [
+        ScoredLabel(
+            _interval(
+                11111,
+                "2024-01-03T12:00:00",
+                "2024-01-03",
+                "2024-01-04",
+                "2024-01-02",
+                "2024-01-05",
+                orbit_class=OrbitClass.LEO,
+                maneuver_type=ManeuverType.IN_TRACK,
+                delta_v=0.5,
+            )
+        ),
+        ScoredLabel(
+            _interval(
+                11111,
+                "2024-01-06T12:00:00",
+                "2024-01-06",
+                "2024-01-07",
+                "2024-01-05",
+                "2024-01-08",
+                orbit_class=OrbitClass.LEO,
+                maneuver_type=ManeuverType.IN_TRACK,
+                delta_v=0.5,
+            )
+        ),
+    ]
+    exposure = [ObjectExposure(11111, OrbitClass.LEO, 0.5)]  # tiny -> a sub-1 false-alarm budget
+
+    def man(epoch: str, confidence: float, before: str, after: str) -> Maneuver:
+        return Maneuver(
+            epoch=_ts(epoch),
+            confidence=confidence,
+            type=ManeuverType.IN_TRACK,
+            delta_v_estimate=0.5,
+            norad_id=11111,
+            elset_epoch_before=_ts(before),
+            elset_epoch_after=_ts(after),
+        )
+
+    # Two true positives and a false alarm, all with saturating, distinct confidences (> 1 - 1e-6),
+    # the TPs ranked above the FP — so both TPs are admitted before the FP would blow the budget.
+    frame = to_frame(
+        [
+            man("2024-01-03T12:00:00", 1.0 - 2e-9, "2024-01-03", "2024-01-04"),  # TP1 (highest)
+            man("2024-01-06T12:00:00", 1.0 - 6e-8, "2024-01-06", "2024-01-07"),  # TP2
+            man("2024-01-20T12:00:00", 1.0 - 3e-7, "2024-01-20", "2024-01-21"),  # FP (unmatched)
+        ]
+    )
+    raw = score(frame, labels, exposure)
+    calibrated = score(apply_calibration(frame, TemperatureScaling(5.0)), labels, exposure)
+    assert raw.per_class[OrbitClass.LEO].recall == 1.0  # both TPs recovered ahead of the FP
+    assert calibrated.per_class[OrbitClass.LEO].recall == raw.per_class[OrbitClass.LEO].recall
+    assert calibrated.per_class[OrbitClass.LEO].precision == raw.per_class[OrbitClass.LEO].precision
+
+
 def test_scoring_is_byte_stable_across_runs() -> None:
     predictions = read_predictions(_PREDICTIONS.read_text(encoding="utf-8"))
     first = score(predictions, _scenario_labels(), _scenario_exposure())

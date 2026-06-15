@@ -62,6 +62,7 @@ from maneuver_detect.labels.record import OrbitClass
 from maneuver_detect.schema import COLUMNS, Maneuver, empty_frame, to_frame
 
 if TYPE_CHECKING:
+    from maneuver_detect.calibration import Calibrator
     from maneuver_detect.features.channels import RawChannels
     from maneuver_detect.models.foundation import FoundationBundle
 
@@ -224,11 +225,16 @@ class _ForecastResidualDetector(Detector):
         forecaster: Forecaster | None = None,
         class_thresholds: dict[str, float] | None = None,
         threshold: float | None = None,
+        calibrator: Calibrator | None = None,
     ) -> None:
         self._forecaster: Forecaster | None = forecaster
         self._class_thresholds: dict[str, float] = dict(class_thresholds or {})
         self._threshold_override = threshold
         self._context_length: int | None = None
+        # The baked-in confidence calibrator, applied to emitted confidence in detect(). Supplied
+        # explicitly alongside a forecaster (the offline scoring path), or adopted from a bundle's
+        # calibration on load; None means inference emits raw, uncalibrated confidence.
+        self._calibrator: Calibrator | None = calibrator
 
         if bundle is None and forecaster is None:
             env_path = os.environ.get(self.checkpoint_env)
@@ -254,6 +260,10 @@ class _ForecastResidualDetector(Detector):
         self._context_length = loaded.context_length
         if not self._class_thresholds:
             self._class_thresholds = dict(loaded.class_thresholds)
+        # Adopt the bundle's baked-in confidence calibrator, if any.
+        self._calibrator = (
+            loaded.calibration.temperature_scaling() if loaded.calibration is not None else None
+        )
 
     def _load_from_hub(self) -> None:
         """Fetch this detector's Hub-published bundle and load it (cached on disk)."""
@@ -302,6 +312,10 @@ class _ForecastResidualDetector(Detector):
         frame = to_frame(maneuvers)
         ordered = frame.sort_values(["norad_id", "epoch"]).reset_index(drop=True)
         result: pd.DataFrame = ordered[list(COLUMNS)]
+        if self._calibrator is not None:
+            from maneuver_detect.calibration import apply_calibration
+
+            result = apply_calibration(result, self._calibrator)
         return result
 
     def _detect_object(self, series: pd.DataFrame) -> list[Maneuver]:
