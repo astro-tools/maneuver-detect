@@ -46,6 +46,7 @@ __all__ = [
     "apply_calibration",
     "brier_score",
     "expected_calibration_error",
+    "format_reliability_curve",
     "reliability_curve",
 ]
 
@@ -468,3 +469,24 @@ def _bin_from_dict(data: Mapping[str, Any]) -> ReliabilityBin:
             None if data["empirical_precision"] is None else float(data["empirical_precision"])
         ),
     )
+
+
+def format_reliability_curve(curve: ReliabilityCurve) -> str:
+    """Render a reliability curve as a committed-data-free text diagram (markdown table).
+
+    The textual form of the per-class reliability diagram the model cards and benchmark docs publish:
+    one row per **populated** confidence bin with its detection count, mean predicted confidence, and
+    empirical precision — the same ``predicted`` vs. ``empirical`` columns a plotted diagram draws
+    against the diagonal. Deterministic and dependency-free (no plotting backend), so it renders the
+    same from a bundle's :class:`BundledCalibration` on any platform; an empty / unpopulated curve
+    renders a single note (a sparse orbit class with no val detections).
+    """
+    populated = curve.populated()
+    if not populated:
+        return "_(no binned detections)_"
+    rows = ["| bin | n | predicted | empirical |", "|---|---|---|---|"]
+    for b in populated:
+        predicted = "—" if b.mean_confidence is None else f"{b.mean_confidence:.3f}"
+        empirical = "—" if b.empirical_precision is None else f"{b.empirical_precision:.3f}"
+        rows.append(f"| [{b.lo:.1f}, {b.hi:.1f}) | {b.count} | {predicted} | {empirical} |")
+    return "\n".join(rows)

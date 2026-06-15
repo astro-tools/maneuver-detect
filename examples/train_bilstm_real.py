@@ -110,6 +110,7 @@ def main() -> int:
     from maneuver_detect.models.checkpoint import save_bundle
     from maneuver_detect.models.datamodule import objects_from_labelled_dataset
     from maneuver_detect.models.evaluate import (
+        fit_calibration_on_val,
         score_on_temporal_split,
         tune_thresholds_per_class_on_val,
     )
@@ -169,6 +170,16 @@ def main() -> int:
         f"tuned thresholds -> fallback {tuning.fallback:g} (val recall {tuning.recall:.2f})  "
         f"per-class: {gates or '(none)'}"
     )
+
+    # Fit the confidence calibration on the val split (val only — no test-label leakage) and bake it
+    # into the bundle, so the published detector emits calibrated confidence and the test report's
+    # per-class operating point is read in calibrated units.
+    calibration = fit_calibration_on_val(
+        BiLstmDetector(bundle), series_by_norad, dataset.labels, split
+    )
+    bundle = replace(bundle, calibration=calibration)
+    ece = ", ".join(f"{cls} {calibration.ece[cls]:.3f}" for cls in sorted(calibration.ece))
+    print(f"calibrated confidence -> temperature {calibration.temperature:.3f}  per-class ECE: {ece}")
 
     # Score the held-out test split through the benchmark (the model-card / leaderboard numbers) and
     # record the full report into the checkpoint, so the generated model card carries the per-class

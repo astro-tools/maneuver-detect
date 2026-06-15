@@ -179,12 +179,14 @@ def test_build_model_card_renders_test_metrics_table(bundle_path: Path) -> None:
             "GEO": {
                 "recall": 0.10,
                 "precision": 0.89,
+                "operating_point_confidence": 0.66,
                 "n_labels_above_floor": 120,
                 "confusion": {},
             },
             "LEO": {
                 "recall": 0.35,
                 "precision": 0.86,
+                "operating_point_confidence": 0.74,
                 "n_labels_above_floor": 23,
                 "confusion": {
                     "in_track": {"in_track": 8, "cross_track": 1, "radial": 0},
@@ -197,9 +199,9 @@ def test_build_model_card_renders_test_metrics_table(bundle_path: Path) -> None:
     bundle = replace(load_bundle(bundle_path), metadata={"seed": 0, "test_report": test_report})
     card = build_model_card(bundle, "bilstm-base")
 
-    assert "| Class | Recall | Precision | Above-floor labels | Type acc |" in card
-    assert "| LEO | 0.35 | 0.86 | 23 | 0.91 |" in card  # type acc = 10/11
-    assert "| GEO | 0.10 | 0.89 | 120 | — |" in card  # empty confusion -> no type acc
+    assert "| Class | Recall | Precision | Operating pt | Above-floor labels | Type acc |" in card
+    assert "| LEO | 0.35 | 0.86 | 0.74 | 23 | 0.91 |" in card  # type acc = 10/11
+    assert "| GEO | 0.10 | 0.89 | 0.66 | 120 | — |" in card  # empty confusion -> no type acc
     assert "false alarm(s)/satellite-year" in card
     assert "(95% CI)" in card
     assert card.index("| LEO |") < card.index("| GEO |")  # altitude order, not alphabetical
@@ -218,6 +220,28 @@ def test_build_model_card_renders_per_class_thresholds(bundle_path: Path) -> Non
     assert card.index("LEO 0.600") < card.index("GEO 0.300")  # altitude order, not alphabetical
 
 
+def test_build_model_card_renders_calibration_when_present(bundle_path: Path) -> None:
+    from maneuver_detect.calibration import BundledCalibration, ReliabilityBin, ReliabilityCurve
+
+    base = load_bundle(bundle_path)
+    # An uncalibrated bundle carries no calibration section.
+    assert "emits **calibrated** confidence" not in build_model_card(base, "bilstm-base")
+
+    calibration = BundledCalibration(
+        temperature=1.8,
+        conformal_q=0.5,
+        conformal_alpha=0.1,
+        reliability={"LEO": ReliabilityCurve(bins=(ReliabilityBin(0.0, 0.5, 4, 0.3, 0.25),))},
+        ece={"LEO": 0.12, "GEO": 0.04},
+    )
+    card = build_model_card(replace(base, calibration=calibration), "bilstm-base")
+    assert "emits **calibrated** confidence" in card
+    assert "T = 1.800" in card
+    assert "90%" in card  # conformal marginal coverage 1 - alpha
+    assert "| LEO | 0.120 |" in card
+    assert card.index("| LEO | 0.120 |") < card.index("| GEO | 0.040 |")  # altitude order
+
+
 def test_build_model_card_test_table_matches_real_report_schema(bundle_path: Path) -> None:
     # Guards against drift between ScoreReport.to_json() and the card renderer: a real (empty)
     # report round-trips through metadata and renders an all-undefined table without error.
@@ -227,8 +251,9 @@ def test_build_model_card_test_table_matches_real_report_schema(bundle_path: Pat
         metadata={"test_report": json.loads(report.to_json())},
     )
     card = build_model_card(bundle, "bilstm-base")
-    assert "| Class | Recall | Precision | Above-floor labels | Type acc |" in card
-    assert "| LEO | — | — | 0 | — |" in card  # no labels -> undefined recall/precision/type acc
+    assert "| Class | Recall | Precision | Operating pt | Above-floor labels | Type acc |" in card
+    # no labels -> undefined recall/precision/operating-point/type acc
+    assert "| LEO | — | — | — | 0 | — |" in card
 
 
 def test_publish_dataset_uploads_card_and_artifacts(

@@ -19,6 +19,7 @@ from maneuver_detect import hub
 from maneuver_detect.datasets.catalogue import DATASET_VERSION
 
 if TYPE_CHECKING:
+    from maneuver_detect.calibration import BundledCalibration
     from maneuver_detect.models.checkpoint import ModelBundle
 
 __all__ = ["build_model_card", "publish_checkpoint"]
@@ -138,22 +139,49 @@ def _test_report_table(report: dict[str, Any]) -> str:
     op = f"{operating_point:g}" if isinstance(operating_point, (int, float)) else "the operating"
     ci = f" ({ci_level:.0%} CI)" if isinstance(ci_level, (int, float)) else ""
     rows = [
-        "| Class | Recall | Precision | Above-floor labels | Type acc |",
-        "|---|---|---|---|---|",
+        "| Class | Recall | Precision | Operating pt | Above-floor labels | Type acc |",
+        "|---|---|---|---|---|---|",
     ]
     for key in sorted(per_class, key=lambda k: (_CLASS_ORDER.get(k, 99), k)):
         metrics = per_class[key]
         rows.append(
             f"| {key} | {_fmt_metric(metrics.get('recall'))} "
             f"| {_fmt_metric(metrics.get('precision'))} "
+            f"| {_fmt_metric(metrics.get('operating_point_confidence'))} "
             f"| {metrics.get('n_labels_above_floor', '—')} "
             f"| {_type_accuracy(metrics.get('confusion'))} |"
         )
     table = "\n".join(rows)
     return (
         f"Held-out **test split** — recall/precision at {op} false alarm(s)/satellite-year over "
-        f"the above-floor population{ci}. Type acc is the share of above-floor true positives "
-        f"whose maneuver type is correct.\n\n{table}\n\n"
+        f"the above-floor population{ci}. Operating pt is the per-class confidence cut admitted "
+        f"within that false-alarm budget (in the detector's calibrated confidence units). Type acc "
+        f"is the share of above-floor true positives whose maneuver type is correct.\n\n{table}\n\n"
+    )
+
+
+def _calibration_block(calibration: BundledCalibration | None) -> str:
+    """Render the bundle's baked-in confidence calibration (or empty when none was fit).
+
+    Shared by both model cards: documents that the detector emits calibrated confidence (the fitted
+    temperature and conformal coverage) and the per-orbit-class expected calibration error of that
+    calibrated confidence, pointing at the benchmark docs for the reliability diagrams themselves.
+    """
+    if calibration is None:
+        return ""
+    coverage = 1.0 - calibration.conformal_alpha
+    rows = ["| Class | ECE |", "|---|---|"]
+    for key in sorted(calibration.ece, key=lambda k: (_CLASS_ORDER.get(k, 99), k)):
+        rows.append(f"| {key} | {calibration.ece[key]:.3f} |")
+    table = "\n".join(rows)
+    return (
+        "This detector emits **calibrated** confidence: the raw score is mapped through a "
+        f"temperature (**T = {calibration.temperature:.3f}**) fit on the val split only, so a "
+        "confidence of *p* means about a fraction *p* of detections at that confidence are real. A "
+        f"split-conformal predictor (marginal coverage **{coverage:.0%}**) accompanies it for "
+        "prediction sets. Per-orbit-class expected calibration error (ECE) of the calibrated "
+        f"confidence:\n\n{table}\n\nThe per-class reliability diagrams and the calibrated per-class "
+        "operating points are published in the benchmark documentation.\n\n"
     )
 
 
@@ -184,6 +212,7 @@ def build_model_card(bundle: ModelBundle, name: str, *, version: str = DATASET_V
     # provenance table (a nested dict would render as one unreadable cell).
     test_report = metadata.pop("test_report", None)
     eval_block = _test_report_table(test_report) if isinstance(test_report, dict) else ""
+    calibration_block = _calibration_block(bundle.calibration)
     class_threshold_line = _class_threshold_line(bundle.class_thresholds)
     dataset_version = str(metadata.get("dataset_version", version))
     recall = metadata.get("best_val_recall")
@@ -251,8 +280,9 @@ scored in novel eras.
 
 ## Evaluation
 
-{eval_block}{recall_line}The benchmark scores precision/recall at a fixed false-alarm rate per orbit
-class over the above-floor population, with per-class type confusion, via the deterministic scorer.
+{eval_block}{calibration_block}{recall_line}The benchmark scores precision/recall at a fixed
+false-alarm rate per orbit class over the above-floor population, with per-class type confusion, via
+the deterministic scorer.
 Performance is sharply data-quality-stratified: well-tracked modern satellites reach
 literature-level recall, while noisy historical series are bounded by the TLE detectability floor.
 

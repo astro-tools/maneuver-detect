@@ -22,7 +22,11 @@ from typing import TYPE_CHECKING
 
 from maneuver_detect import hub
 from maneuver_detect.datasets.catalogue import DATASET_VERSION
-from maneuver_detect.models.publish import _provenance_table, _test_report_table
+from maneuver_detect.models.publish import (
+    _calibration_block,
+    _provenance_table,
+    _test_report_table,
+)
 
 if TYPE_CHECKING:
     from maneuver_detect.models.foundation import FoundationBundle
@@ -127,6 +131,7 @@ def build_foundation_card(
     metadata = dict(bundle.metadata)
     test_report = metadata.pop("test_report", None)
     eval_block = _test_report_table(test_report) if isinstance(test_report, dict) else ""
+    calibration_block = _calibration_block(bundle.calibration)
     dataset_version = str(metadata.get("dataset_version", version))
     mode = str(metadata.get("mode", "zero-shot"))
     finetuned = "a light fine-tune of" if bundle.finetune_state is not None else "the pretrained"
@@ -206,8 +211,9 @@ specialises the quiet-dynamics prior on the training split only.
 
 ## Evaluation
 
-{eval_block}The benchmark scores precision/recall at a fixed false-alarm rate per orbit class over
-the above-floor population, with per-class type confusion, via the deterministic scorer. Performance
+{eval_block}{calibration_block}The benchmark scores precision/recall at a fixed false-alarm rate per
+orbit class over the above-floor population, with per-class type confusion, via the deterministic
+scorer. Performance
 is sharply data-quality-stratified: well-tracked modern satellites reach literature-level recall,
 while noisy historical series are bounded by the TLE detectability floor.
 

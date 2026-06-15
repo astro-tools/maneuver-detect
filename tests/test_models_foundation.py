@@ -233,6 +233,9 @@ def test_calibrate_and_score_runs_the_full_flow() -> None:
     # The bundle came out calibrated (val) and scored (test): both rounds rode through.
     assert set(bundle.class_thresholds) == {oc.value for oc in OrbitClass}
     assert "calibration" in bundle.metadata
+    # The confidence calibration was fit on val and baked into the bundle (val-only, no test leak).
+    assert bundle.calibration is not None
+    assert bundle.calibration.temperature > 0.0
     assert isinstance(bundle.metadata["test_report"]["per_class"], dict)
 
 

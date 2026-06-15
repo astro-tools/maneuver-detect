@@ -17,6 +17,7 @@ from maneuver_detect.calibration import (
     apply_calibration,
     brier_score,
     expected_calibration_error,
+    format_reliability_curve,
     reliability_curve,
 )
 from maneuver_detect.detectors.base import Detector
@@ -262,3 +263,22 @@ def test_apply_calibration_passes_through_empty_frame() -> None:
     out = apply_calibration(empty, TemperatureScaling(2.0))
     assert out.empty
     assert list(out.columns) == list(COLUMNS)
+
+
+def test_format_reliability_curve_renders_populated_bins() -> None:
+    # Two low-confidence false alarms (bin 0) and two high-confidence hits (bin 9): two populated
+    # bins; the eight empty bins between them are omitted.
+    curve = reliability_curve(
+        np.array([0.02, 0.08, 0.92, 0.98]), np.array([0.0, 0.0, 1.0, 1.0]), n_bins=10
+    )
+    rendered = format_reliability_curve(curve)
+    lines = rendered.splitlines()
+    assert lines[0] == "| bin | n | predicted | empirical |"
+    assert len(lines) == 4  # header + separator + exactly the two populated bins
+    assert "| [0.0, 0.1) | 2 |" in rendered
+    assert "| [0.9, 1.0) | 2 |" in rendered
+
+
+def test_format_reliability_curve_handles_an_empty_curve() -> None:
+    empty = reliability_curve(np.array([]), np.array([]), n_bins=10)
+    assert format_reliability_curve(empty) == "_(no binned detections)_"

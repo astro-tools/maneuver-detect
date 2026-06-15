@@ -225,14 +225,16 @@ class _ForecastResidualDetector(Detector):
         forecaster: Forecaster | None = None,
         class_thresholds: dict[str, float] | None = None,
         threshold: float | None = None,
+        calibrator: Calibrator | None = None,
     ) -> None:
         self._forecaster: Forecaster | None = forecaster
         self._class_thresholds: dict[str, float] = dict(class_thresholds or {})
         self._threshold_override = threshold
         self._context_length: int | None = None
-        # The bundle's baked-in confidence calibrator, applied to emitted confidence in detect();
-        # None until a bundle carrying one is loaded (then inference emits calibrated confidence).
-        self._calibrator: Calibrator | None = None
+        # The baked-in confidence calibrator, applied to emitted confidence in detect(). Supplied
+        # explicitly alongside a forecaster (the offline scoring path), or adopted from a bundle's
+        # calibration on load; None means inference emits raw, uncalibrated confidence.
+        self._calibrator: Calibrator | None = calibrator
 
         if bundle is None and forecaster is None:
             env_path = os.environ.get(self.checkpoint_env)

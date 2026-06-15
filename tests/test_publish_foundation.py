@@ -97,9 +97,33 @@ def test_build_foundation_card_renders_recipe_metrics_and_thresholds() -> None:
     assert "| Class | Residual-z threshold |" in card  # the calibrated operating point
     assert "| LEO | 4.50 |" in card
     # The held-out metrics render as the per-class table (shared with the torch card renderer).
-    assert "| Class | Recall | Precision | Above-floor labels | Type acc |" in card
-    assert "| LEO | 0.35 | 0.86 | 23 | — |" in card
+    assert "| Class | Recall | Precision | Operating pt | Above-floor labels | Type acc |" in card
+    assert "| LEO | 0.35 | 0.86 | — | 23 | — |" in card  # no operating point in this fixture report
     assert "`test_report`" not in card  # the nested report is the table, not a scalar cell
+
+
+def test_build_foundation_card_renders_calibration_when_present() -> None:
+    from dataclasses import replace
+
+    from maneuver_detect.calibration import BundledCalibration, ReliabilityBin, ReliabilityCurve
+
+    # An uncalibrated bundle carries no calibration section.
+    assert "emits **calibrated** confidence" not in build_foundation_card(
+        _scored_bundle(), "chronos-residual"
+    )
+
+    calibration = BundledCalibration(
+        temperature=1.4,
+        conformal_q=0.5,
+        conformal_alpha=0.1,
+        reliability={"GEO": ReliabilityCurve(bins=(ReliabilityBin(0.5, 1.0, 3, 0.7, 0.66),))},
+        ece={"GEO": 0.05},
+    )
+    card = build_foundation_card(replace(_scored_bundle(), calibration=calibration), "chronos-residual")
+    assert "emits **calibrated** confidence" in card
+    assert "T = 1.400" in card
+    assert "90%" in card  # conformal marginal coverage 1 - alpha
+    assert "| GEO | 0.050 |" in card
 
 
 def test_publish_foundation_uploads_bundle_card_and_tag(

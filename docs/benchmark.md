@@ -88,9 +88,31 @@ ece = expected_calibration_error(leo.confidences, leo.outcomes)
 ```
 
 Calibration only rescales the confidence column — it does not change which gaps a detector fires on, just how
-confident it says it is. The per-class operating points for each shipped detector are published with the
-versioned models; the reliability diagnostics above (`reliability_curve`, `expected_calibration_error`) are
-available from the calibration API for any detector and split.
+confident it says it is. The per-class operating point is serialised per class in the scorer's JSON report as
+`operating_point_confidence` (the confidence cut at the target false-alarm rate), so a consumer reads the
+headline recall together with the confidence threshold it is read at.
+
+### Shipped, baked-in calibration
+
+Each published detector carries its fitted calibration inside the bundle (a `BundledCalibration`: the val-fit
+temperature, the conformal predictor, and the per-orbit-class reliability curve and ECE), so loading a
+published model emits calibrated confidence with no calibration data at inference — the wrapper above is only
+needed to calibrate a detector you trained yourself. The per-class reliability diagram renders straight from
+the bundle, committed-data-free and with no plotting backend:
+
+```python
+from maneuver_detect.calibration import format_reliability_curve
+from maneuver_detect.labels.record import OrbitClass
+from maneuver_detect.models.checkpoint import load_bundle
+
+bundle = load_bundle("bilstm-base.pt")
+print(f"temperature T = {bundle.calibration.temperature:.3f}")
+# Predicted-vs-empirical per confidence bin — the reliability diagram as a table, per orbit class.
+print(format_reliability_curve(bundle.calibration.reliability[OrbitClass.LEO.value]))
+```
+
+The reliability diagnostics (`reliability_curve`, `expected_calibration_error`) remain available from the
+calibration API for any detector and split.
 
 ## Scorer
 
