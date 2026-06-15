@@ -109,14 +109,21 @@ maneuver-detect dataset build --out dataset/v{minor}
 
 - **LEO** — DORIS/IDS altimetry satellites (the Δv-labelled core) and SPOT imaging satellites.
 - **MEO** — GPS (FCSTDV NANUs) and Galileo (PLN_MANV NAGUs); epoch-only.
-- **GEO** — actively station-kept geostationary satellites, self-labelled by longitude-drift
-  inspection (best-effort, epoch-only).
+- **GEO** — geostationary satellites: the GOES weather satellites carry operator-announced labels
+  from the NOAA OSPO navigation summary, the QZS-3/6 satellites carry QZSS OHI operator Δv, and the
+  Meteosat/Himawari satellites are self-labelled by longitude-drift inspection (best-effort).
+- **IGSO** — the inclined/eccentric-geosynchronous QZSS satellites (QZS-2/4/1R), with executed-Δv
+  labels from the Cabinet Office of Japan's Operational History Information (OHI) files.
+- **HEO** — high-eccentricity apogee/perigee-control objects (XMM-Newton, INTEGRAL, TESS),
+  self-labelled from the element series (best-effort, epoch-only).
 
 ## Licence
 
 The authored artifacts (recipe, labels, splits, manifest) are **CC-BY-4.0**. The label sources pass
-through under their own terms (DORIS/IDS open data; GPS NANUs US-Government public domain; Galileo
-NAGUs reused with attribution, © EU). The **raw Space-Track element history is not redistributed**
-under any licence — it is re-fetched locally from each user's own account. See the
-[repository](https://github.com/astro-tools/maneuver-detect) for full source terms.
+through under their own terms: DORIS/IDS open data; GPS NANUs and NOAA GOES navigation summaries are
+US-Government public domain; Galileo NAGUs are reused with attribution (© EU); QZSS labels reused
+under the Quasi-Zenith Satellite System website terms (CC-BY-4.0, "Source: Quasi-Zenith Satellite
+System website"); the self-labelled GEO/HEO epochs are authored. The **raw Space-Track element
+history is not redistributed** under any licence — it is re-fetched locally from each user's own
+account. See the [repository](https://github.com/astro-tools/maneuver-detect) for full source terms.
 """

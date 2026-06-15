@@ -1,4 +1,4 @@
-# maneuver-detect — design decisions (D1–D14)
+# maneuver-detect — design decisions (D1–D15)
 
 The frozen decision record, consolidating the prerequisite spikes (under [`spikes/`](spikes/)) and the
 project charter. **No implementation lands until it matches this record.** Each decision states the call
@@ -11,7 +11,9 @@ contract from V5, gating the learned baselines. **D12** settles V7 — leaderboa
 single-GPU training budget — gating the public leaderboard Space and the baseline training. **D13**
 extends the label-source set for the v0.2 dataset growth (the V2 follow-up survey). **D14** is the first
 v0.3 decision — the foundation-model baseline (Chronos/TimesFM forecast-residual detector) and the
-`[foundation]` extra contract, from V6, gating the v0.3 baseline detector.
+`[foundation]` extra contract, from V6, gating the v0.3 baseline detector. **D15** is the second v0.3
+decision — the expanded label-source set and the two new orbit classes (IGSO + HEO) for the v0.3
+dataset-growth pass (the V2-survey follow-up #2), extending D3/D4/D9/D13.
 
 ---
 
@@ -308,9 +310,71 @@ Detail in [`spikes/v6-foundation-model-applicability.md`](spikes/v6-foundation-m
 
 ---
 
+## D15 — Expanded label-source set + IGSO/HEO classes for v0.3 dataset growth (V2 follow-up #2) — *v0.3*
+
+The ratified source set and class additions the v0.3 dataset-growth pass draws from, extending **D13**
+(itself the v0.2 extension of **D3**) from a second V2-survey follow-up, and resolving the v0.2
+coverage caveats: the GEO labels were self-derived (circular) and the second MEO operator (Galileo)
+was thin. Engineering survey of public sources and their terms — **not legal advice**; the org owner
+ratifies the set. Every source was verified by a real headless fetch.
+
+- **IGSO + GEO — add QZSS via the OHI files.** The Cabinet Office of Japan publishes, per
+  Quasi-Zenith satellite, an *Operational History Information* file (`ohi-qzsN.txt`) carrying the
+  executed orbit-maintenance maneuvers with a **Δv vector** — the only surveyed operator feed that
+  ships a real executed Δv, not just an outage window. Headless-fetchable (static `.txt`), terms are a
+  reuse-with-attribution grant (CC-BY-4.0, "Source: Quasi-Zenith Satellite System website") →
+  **labels are shipped** (D2). QZS-2/4/1R are inclined/eccentric geosynchronous (e≈0.075, i≈37–44°) —
+  a **new IGSO class**; QZS-3/6 are equatorial → **GEO** (operator-Δv, breaking the GEO
+  self-label circularity for those objects). Two modelling choices (detail in the spike): the OHI Δv
+  **axis frame is undocumented**, so labels carry the frame-invariant **|Δv| magnitude only**
+  (`maneuver_type = None`) rather than a fabricated in-track/cross-track/radial split; and clustered
+  burns (a station-keeping campaign) are **collapsed into one event** (D4 granularity), the event Δv
+  being the sum of the burns' magnitudes.
+- **GEO — add NOAA GOES operator epochs.** The NOAA OSPO navigation summary (`navsum.txt`) names each
+  GOES bird's last-maneuver day; it is US-Government **public domain** → labels shipped. It is a
+  **live-state** file (latest maneuver only, day-of-year granularity), so the maneuver *history* is
+  built by replaying its **Internet-Archive snapshots** (CDX-listed, content-distinct) and
+  deduplicating the epochs. The GOES birds therefore move from self-labelled to **operator-announced**
+  (epoch-only), the second half of breaking the GEO circularity caveat. Meteosat/Himawari (no public
+  feed) stay self-labelled.
+- **MEO — Galileo back-catalogue.** The same NAGU `PLN_MANV` feed (D13), crawled over the full
+  2016→present window, is the MEO-thickening lever. Galileo genuinely station-keeps rarely, so the
+  realized count stays modest — the richer GNSS thickening is the QZSS operator-Δv set above.
+- **HEO — a new self-labelled class.** **No** licence-clean, headless-ingestible operator maneuver
+  feed exists for the high-eccentricity regime: science HEO (XMM-Newton, INTEGRAL) maneuvers are
+  documented only in prose, Molniya/Tundra operators are silent, and ILRS only re-points to LEO +
+  QZSS. So HEO is populated **best-effort by self-labelling** (energy/eccentricity-step inspection on
+  the reconstructed series — the GEO longitude-shift analogue, with the same **circularity caveat**:
+  reported as a separate, flagged class, not folded into the headline recall) over a small set of
+  genuinely high-e, geocentric, SGP4-tractable, maneuvering objects (XMM-Newton, INTEGRAL, TESS).
+  Spektr-RG is excluded (it is a Sun-Earth-L2 halo orbit, not SGP4-tractable).
+- **Dead ends (re-confirmed).** **BeiDou** NABU stays uncrawlable (JS-only SPA, no maneuver
+  semantics); **GLONASS** stays excluded on terms (150-character reproduction cap); **EUMETSAT** GEO
+  notices are real but login/JS-gated with a restrictive data policy. No high-e HEO operator feed
+  exists — the self-labelling conclusion is a finding, not a gap papered over.
+- **Class scope (D3) + floor (D4).** Five classes: LEO, MEO, GEO, **IGSO**, **HEO**. The runtime
+  `orbit_class_of` (semi-major-axis only) is **unchanged** — it returns LEO/MEO/GEO, so a detector
+  buckets IGSO/HEO as the nearest coarse class for its working floor/normalisation; the benchmark
+  scores by the **pinned** dataset class, so IGSO/HEO are genuinely scored. The detectability-floor
+  table gains an IGSO entry (≈GEO, geosynchronous) and an HEO analytical placeholder (D4 left HEO
+  open). An eccentricity-aware classifier + per-class IGSO/HEO normalisation statistics are a later
+  refinement, not this pass.
+- **Licence (D9).** Attribution stacks per source under the CC-BY-4.0 authored artifacts: NOAA GOES is
+  US-gov public domain; QZSS adds "Source: Quasi-Zenith Satellite System website" (CC-BY-4.0); Galileo
+  © EU carries forward. No new restriction attaches (BeiDou/GLONASS/EUMETSAT excluded). Each source's
+  licence is **confirmed at ingest** (the D13 discipline).
+- **Versioning (D8).** A lockstep **v0.3** dataset bump: the recipe, labels, manifest, and re-frozen
+  splits version to 0.3.0; the leak-free + class-stratified split construction and the per-class
+  Wilson-CI scorer are class-generic, so the new classes flow through reporting automatically.
+
+Detail in [`spikes/v2-followup2-heo-igso-sources.md`](spikes/v2-followup2-heo-igso-sources.md).
+
+---
+
 *Sources: [`spikes/v1-dataset-redistribution.md`](spikes/v1-dataset-redistribution.md),
 [`spikes/v2-label-sources.md`](spikes/v2-label-sources.md),
 [`spikes/v2-followup-label-sources.md`](spikes/v2-followup-label-sources.md),
+[`spikes/v2-followup2-heo-igso-sources.md`](spikes/v2-followup2-heo-igso-sources.md),
 [`spikes/v3-detectability-floor.md`](spikes/v3-detectability-floor.md),
 [`spikes/v4-dv-inversion.md`](spikes/v4-dv-inversion.md),
 [`spikes/v5-irregular-sampling-encoding.md`](spikes/v5-irregular-sampling-encoding.md),
