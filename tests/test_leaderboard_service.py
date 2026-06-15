@@ -64,7 +64,9 @@ def test_protocol_bump_field_is_inert_to_the_public_response() -> None:
     # neither leaks into a response nor changes scoring (the Space tolerates it by ignoring it).
     fixture = build_fixture()
     service = LeaderboardService(fixture)
-    report = score(read_predictions(honest_predictions()), list(fixture.labels), list(fixture.exposure))
+    report = score(
+        read_predictions(honest_predictions()), list(fixture.labels), list(fixture.exposure)
+    )
     assert "operating_point_confidence" in report.to_json()  # the bump is live in the scorer
     public = service.public_result(report)
     assert set(public) == {

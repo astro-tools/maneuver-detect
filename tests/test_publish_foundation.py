@@ -119,7 +119,9 @@ def test_build_foundation_card_renders_calibration_when_present() -> None:
         reliability={"GEO": ReliabilityCurve(bins=(ReliabilityBin(0.5, 1.0, 3, 0.7, 0.66),))},
         ece={"GEO": 0.05},
     )
-    card = build_foundation_card(replace(_scored_bundle(), calibration=calibration), "chronos-residual")
+    card = build_foundation_card(
+        replace(_scored_bundle(), calibration=calibration), "chronos-residual"
+    )
     assert "emits **calibrated** confidence" in card
     assert "T = 1.400" in card
     assert "90%" in card  # conformal marginal coverage 1 - alpha

@@ -308,8 +308,8 @@ def apply_calibration(frame: pd.DataFrame, calibrator: Calibrator) -> pd.DataFra
     """Return ``frame`` with its ``confidence`` column mapped through ``calibrator`` (clamped).
 
     The single place a fitted calibrator is applied to a detector's canonical maneuver frame: an
-    empty frame passes through untouched, otherwise the ``confidence`` column is remapped (clamped to
-    ``[0, 1]``) and every other column — schema, dtypes, row order — is preserved. Shared by
+    empty frame passes through untouched, otherwise the ``confidence`` column is remapped (clamped
+    to ``[0, 1]``) and every other column — schema, dtypes, row order — is preserved. Shared by
     :class:`CalibratedDetector` and the published detectors that carry a baked-in calibrator, so
     inference applies calibration identically however the calibrator was supplied.
     """
@@ -354,8 +354,8 @@ class BundledCalibration:
       reporting (a prediction set is not a scalar, so it rides alongside the emitted confidence).
     * ``reliability`` — the per-orbit-class reliability curve of the **calibrated** confidence (the
       data a per-class reliability diagram plots), keyed by orbit-class value.
-    * ``ece`` — the per-orbit-class expected calibration error of the calibrated confidence, a scalar
-      calibration-quality summary the card reports.
+    * ``ece`` — the per-orbit-class expected calibration error of the calibrated confidence, a
+      scalar calibration-quality summary the card reports.
 
     Everything is fit on the **val** split only (never the test labels). Stored in a bundle's
     ``calibration`` slot and round-tripped as a plain dict, so an old bundle without one loads as
@@ -387,9 +387,9 @@ class BundledCalibration:
         """Fit the bundled calibration from per-orbit-class val ``(confidence, outcome)`` samples.
 
         Pools every class's samples to fit the single temperature and the conformal predictor (the
-        per-detector calibrator), then measures the per-class reliability and ECE on the **calibrated**
-        confidences — the curve the published detector's emitted confidence actually follows. Raises
-        :class:`ValueError` when no class carries a matched detection to calibrate on.
+        per-detector calibrator), then measures the per-class reliability and ECE on the
+        **calibrated** confidences — the curve the published detector's emitted confidence actually
+        follows. Raises :class:`ValueError` when no class carries a matched detection to fit on.
         """
         pooled_conf = (
             np.concatenate([s.confidences for s in samples.values()])
@@ -422,7 +422,7 @@ class BundledCalibration:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialise to a plain dict of scalars/lists, for the bundle's :func:`torch.save` payload."""
+        """Serialise to a plain dict for the bundle's :func:`torch.save` payload."""
         return {
             "temperature": self.temperature,
             "conformal_q": self.conformal_q,
@@ -474,12 +474,12 @@ def _bin_from_dict(data: Mapping[str, Any]) -> ReliabilityBin:
 def format_reliability_curve(curve: ReliabilityCurve) -> str:
     """Render a reliability curve as a committed-data-free text diagram (markdown table).
 
-    The textual form of the per-class reliability diagram the model cards and benchmark docs publish:
-    one row per **populated** confidence bin with its detection count, mean predicted confidence, and
-    empirical precision — the same ``predicted`` vs. ``empirical`` columns a plotted diagram draws
-    against the diagonal. Deterministic and dependency-free (no plotting backend), so it renders the
-    same from a bundle's :class:`BundledCalibration` on any platform; an empty / unpopulated curve
-    renders a single note (a sparse orbit class with no val detections).
+    The textual form of the per-class reliability diagram the model cards and benchmark docs
+    publish: one row per **populated** confidence bin with its detection count, mean predicted
+    confidence, and empirical precision — the ``predicted`` vs. ``empirical`` columns a diagram
+    plots against the diagonal. Deterministic and dependency-free (no plotting backend), so it
+    renders the same from a bundle's :class:`BundledCalibration` on any platform; an empty /
+    unpopulated curve renders a single note (a sparse orbit class with no val detections).
     """
     populated = curve.populated()
     if not populated:

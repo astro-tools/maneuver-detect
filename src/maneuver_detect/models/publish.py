@@ -180,8 +180,8 @@ def _calibration_block(calibration: BundledCalibration | None) -> str:
         "confidence of *p* means about a fraction *p* of detections at that confidence are real. A "
         f"split-conformal predictor (marginal coverage **{coverage:.0%}**) accompanies it for "
         "prediction sets. Per-orbit-class expected calibration error (ECE) of the calibrated "
-        f"confidence:\n\n{table}\n\nThe per-class reliability diagrams and the calibrated per-class "
-        "operating points are published in the benchmark documentation.\n\n"
+        f"confidence:\n\n{table}\n\nThe per-class reliability diagrams and the calibrated "
+        "per-class operating points are published in the benchmark documentation.\n\n"
     )
 
 

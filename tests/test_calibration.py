@@ -212,7 +212,9 @@ def _val_samples() -> dict[str, CalibrationSamples]:
     outcome = (rng.uniform(0.0, 1.0, size=64) < conf * 0.7).astype(np.float64)
     return {
         "LEO": CalibrationSamples(conf, outcome),
-        "IGSO": CalibrationSamples(np.asarray([], dtype=np.float64), np.asarray([], dtype=np.float64)),
+        "IGSO": CalibrationSamples(
+            np.asarray([], dtype=np.float64), np.asarray([], dtype=np.float64)
+        ),
     }
 
 
@@ -224,7 +226,7 @@ def test_bundled_calibration_fit_pools_and_measures_per_class() -> None:
     # Reliability + ECE are present for every class given, including the empty one.
     assert set(cal.reliability) == {"LEO", "IGSO"}
     assert set(cal.ece) == {"LEO", "IGSO"}
-    # An empty class yields an all-empty reliability curve and a zero ECE (sparse IGSO rides through).
+    # An empty class yields an all-empty reliability curve and a zero ECE (sparse IGSO rides on).
     assert cal.ece["IGSO"] == 0.0
     assert not cal.reliability["IGSO"].populated()
     assert cal.reliability["LEO"].populated()
@@ -251,7 +253,9 @@ def test_apply_calibration_remaps_confidence_and_keeps_schema() -> None:
     temperature = TemperatureScaling(temperature=2.0)
     out = apply_calibration(frame, temperature)
     assert list(out.columns) == list(COLUMNS)
-    assert out["confidence"].to_numpy() == pytest.approx(temperature.transform(frame["confidence"].to_numpy()))
+    assert out["confidence"].to_numpy() == pytest.approx(
+        temperature.transform(frame["confidence"].to_numpy())
+    )
     # Every non-confidence column is preserved unchanged.
     for column in COLUMNS:
         if column != "confidence":

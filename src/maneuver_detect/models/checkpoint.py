@@ -147,7 +147,7 @@ def load_bundle(path: str | Path, *, map_location: str = "cpu") -> ModelBundle:
 
 
 def _load_calibration(data: Any) -> BundledCalibration | None:
-    """Reconstruct a bundle's :class:`BundledCalibration` from its payload dict (``None`` if absent)."""
+    """Reconstruct a bundle's :class:`BundledCalibration` from its payload (``None`` if absent)."""
     if data is None:
         return None
     from maneuver_detect.calibration import BundledCalibration

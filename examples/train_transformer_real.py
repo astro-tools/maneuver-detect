@@ -183,7 +183,9 @@ def main() -> int:
     )
     bundle = replace(bundle, calibration=calibration)
     ece = ", ".join(f"{cls} {calibration.ece[cls]:.3f}" for cls in sorted(calibration.ece))
-    print(f"calibrated confidence -> temperature {calibration.temperature:.3f}  per-class ECE: {ece}")
+    print(
+        f"calibrated confidence -> temperature {calibration.temperature:.3f}  per-class ECE: {ece}"
+    )
 
     # Score the held-out test split through the benchmark (the model-card / leaderboard numbers) and
     # record the full report into the checkpoint, so the generated model card carries the per-class
