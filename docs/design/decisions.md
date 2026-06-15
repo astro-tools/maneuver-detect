@@ -1,4 +1,4 @@
-# maneuver-detect — design decisions (D1–D15)
+# maneuver-detect — design decisions (D1–D16)
 
 The frozen decision record, consolidating the prerequisite spikes (under [`spikes/`](spikes/)) and the
 project charter. **No implementation lands until it matches this record.** Each decision states the call
@@ -13,7 +13,9 @@ extends the label-source set for the v0.2 dataset growth (the V2 follow-up surve
 v0.3 decision — the foundation-model baseline (Chronos/TimesFM forecast-residual detector) and the
 `[foundation]` extra contract, from V6, gating the v0.3 baseline detector. **D15** is the second v0.3
 decision — the expanded label-source set and the new IGSO orbit class (HEO reserved but deferred) for the v0.3
-dataset-growth pass (the V2-survey follow-up #2), extending D3/D4/D9/D13.
+dataset-growth pass (the V2-survey follow-up #2), extending D3/D4/D9/D13. **D16** settles the V7 follow-up — the
+hidden-label competition track (a never-committed forward holdout) the D12 amendment deferred — gating the
+competition-board build.
 
 ---
 
@@ -190,7 +192,8 @@ identical splits. The **public/private-subset firewall (D12.3, point 2) is remov
 on a public test set — and the **aggregate-only response and the 5/user/UTC-day rate limit are kept as
 courtesy / abuse guards, not integrity guarantees.** A true hidden-label competition would need a
 separate, never-committed forward/rolling holdout sourced from data never added to the public dataset;
-that is **deferred to a v0.3+ follow-up.** One D2 consequence carries into the build: the scorer's
+the design of that track is **settled by the V7 follow-up (D16)** — a forward holdout keyed to the release
+cadence — with the board itself a follow-up build. One D2 consequence carries into the build: the scorer's
 matching windows are real elset epochs (derived Space-Track data the dataset does not redistribute), so
 the leaderboard's scoring fixture is **not committed** — it is built offline from a credentialed
 reconstruction and supplied to the Space as private deploy-time data. **D12.1 / D12.2 / D12.4** (hosting,
@@ -377,14 +380,55 @@ ratifies the set. Every source was verified by a real headless fetch.
 - **Versioning (D8).** A lockstep **v0.3** dataset bump: the recipe, labels, manifest, and re-frozen
   splits version to 0.3.0; the leak-free + class-stratified split construction and the per-class
   Wilson-CI scorer are class-generic, so the new IGSO class flows through reporting automatically.
-- **Public/private boundary (coordination with #95).** All v0.3 labels are committed **public**; none
-  are held back. The hidden-label competition (#95) draws a **forward holdout** — maneuvers with epoch
-  *after* the v0.3 freeze, reconstructed from the same ongoing operator feeds (D2) — which is disjoint
-  from the historical labels committed here, so nothing need be private and no competition label can
-  leak into `labels.json` / `splits.json`. The new operator feeds (QZSS OHI, NOAA GOES) also make a
-  forward GEO/IGSO holdout viable, addressing #95's "thin forward GEO" risk.
+- **Public/private boundary (coordination with the competition track, D16).** All v0.3 labels are
+  committed **public**; none are held back. The hidden-label competition (the V7 follow-up, **D16**) draws
+  a **forward holdout** — maneuvers with epoch *after* the v0.3 freeze, reconstructed from the same ongoing
+  operator feeds (D2) — which is disjoint from the historical labels committed here, so nothing need be
+  private and no competition label can leak into `labels.json` / `splits.json`. The new operator feeds
+  (QZSS OHI, NOAA GOES) also make a forward GEO/IGSO holdout viable, settling the "thin forward GEO" risk
+  in D16.
 
 Detail in [`spikes/v2-followup2-heo-igso-sources.md`](spikes/v2-followup2-heo-igso-sources.md).
+
+---
+
+## D16 — Hidden-label competition track via a never-committed forward holdout (V7 follow-up) — *v0.3+*
+
+The design of the true hidden-label competition the **D12 amendment** deferred — settling the V7 spike's
+retained firewall analysis against a forward holdout, from a follow-up dry-run of the *real* leaderboard
+service. It resolves the three open questions (holdout source + the GEO problem, one-time cutoff vs.
+rolling, reveal cadence) and shows the firewall the open v0.2 answer key made unbuildable holds on a
+never-committed holdout. The **board itself is a follow-up build** (a second "competition" board on the
+existing Space, the holdout-fixture builder, the per-release refresh) — this decision fixes its shape, not
+its code.
+
+- **The holdout (D16.1).** Maneuvers with **epoch strictly after the public dataset's freeze**,
+  reconstructed from the same operator feeds via the **D2 recipe**, **never committed** to `labels.json` /
+  `splits.json`. Disjointness is **temporal** — a single `epoch > freeze` cut, auditable and
+  satellite-agnostic (the same object may maneuver on both sides) — the boundary D15 reserved, made
+  precise. The fixture is built offline from a credentialed reconstruction and supplied as private
+  deploy-time data (D2); unlike the v0.2 reproducibility fixture, the **labels themselves are private**.
+- **Rolling, keyed to the release cadence (D16.2).** A one-time forward cutoff is rejected (it ages out as
+  the next release publishes past it). The private holdout is always "after the current freeze"; at each
+  release the matured window's labels are **revealed** (folded into the next public dataset) and a fresh
+  forward window becomes the new private holdout. **Reveal cadence = per release** — the Kaggle
+  private-leaderboard-at-deadline pattern with the deadline at each release; the refresh is one offline
+  fixture build per release cut, not a standing service.
+- **The firewall, restored as integrity (D16.3).** All four D12.3 mechanisms return — hidden labels +
+  public/private subset split (private scored once at the release reveal) + the **5/user/UTC-day rate
+  limit, now an integrity bound** (probing leaks hidden labels) + the aggregate-only / fixed-schema round
+  trip (D12.2, unchanged). The V7 probing bound carries over: a single-detection oracle recovers only the
+  public subset (`ceil(G/R)` submission-days, anomalous-volume detectable) and never the private subset
+  that decides the ranking — proven against the real service.
+- **Thin classes scored, not dropped (D16.4).** LEO (Δv-labelled) and MEO carry the competition from
+  launch; GEO/IGSO are populated for real by the **D15** operator feeds (QZSS OHI operator-Δv, NOAA GOES
+  epochs) — breaking the v0.2 self-label circularity — but thin, so they are scored per-class with their
+  honest small-`N` Wilson intervals (sharpening across reveal cycles). BeiDou NABU stays unavailable.
+- **Gating (D8).** The implementation is gated on the first post-freeze window existing — i.e. after a v0.3
+  release freezes the public dataset to define `epoch > freeze`. Ratify D16 when the board is built against
+  it (the V7 → D12 discipline).
+
+Detail in [`spikes/v7-followup-hidden-label-competition.md`](spikes/v7-followup-hidden-label-competition.md).
 
 ---
 
@@ -397,4 +441,5 @@ Detail in [`spikes/v2-followup2-heo-igso-sources.md`](spikes/v2-followup2-heo-ig
 [`spikes/v5-irregular-sampling-encoding.md`](spikes/v5-irregular-sampling-encoding.md),
 [`spikes/v6-foundation-model-applicability.md`](spikes/v6-foundation-model-applicability.md),
 [`spikes/v7-leaderboard-integrity-and-compute-budget.md`](spikes/v7-leaderboard-integrity-and-compute-budget.md),
+[`spikes/v7-followup-hidden-label-competition.md`](spikes/v7-followup-hidden-label-competition.md),
 and the project charter.*

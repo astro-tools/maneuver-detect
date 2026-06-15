@@ -71,9 +71,11 @@ records); the response is **aggregate-only** (per-class above-floor recall at th
 the published timing-only floor — never a per-label match table), and submissions are **rate-limited**
 as a courtesy / abuse guard. The scorer's matching windows are derived elset epochs the dataset does not
 redistribute (D2), so the Space's scoring fixture is built offline and supplied as private deploy-time
-data rather than committed. A true hidden-label competition (a never-committed forward holdout) is
-deferred to v0.3+. Settled by **V7 (v0.2)** as amended; out of scope for v0.1, which freezes the
-protocol and ships the local scorer.
+data rather than committed. A true hidden-label competition (a never-committed forward holdout, scored
+behind the restored D12.3 firewall) is **settled by the V7 follow-up (D16)** — keyed to the release
+cadence; its second board is a follow-up build gated on a v0.3 freeze. Settled by **V7 (v0.2)** as
+amended (and **D16** for the competition track); out of scope for v0.1, which freezes the protocol and
+ships the local scorer.
 
 ## 9. Versioning
 
