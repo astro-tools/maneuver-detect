@@ -1,9 +1,9 @@
-"""Train the transformer baseline on the real, credentialed v0.2 dataset and score it.
+"""Train the transformer baseline on the real, credentialed dataset and score it.
 
 This is the offline run that produces the publishable checkpoint and its model-card numbers, end to
 end and reproducibly:
 
-1. reconstruct the committed v0.2 recipe from Space-Track (credentialed; the elements are never
+1. reconstruct the committed recipe from Space-Track (credentialed; the elements are never
    written to the repo, per D2);
 2. slice the labelled objects by the frozen leak-free temporal split;
 3. train the transformer through the shared Lightning harness on a single GPU
@@ -25,9 +25,9 @@ Without credentials it prints how to set them and exits 0 (it never blocks on a 
 of epochs is the ``MANEUVER_DETECT_TRAIN_EPOCHS`` environment variable (default 150). To try the
 focal objective instead of class-weighted BCE, set ``MANEUVER_DETECT_TRANSFORMER_LOSS=focal``. The
 class-balance of the checkpoint-selection and threshold-tuning objective is
-``MANEUVER_DETECT_SELECTION_OBJECTIVE`` (``pooled`` default, ``macro`` to weight every orbit class
-equally — lifting GEO without trading LEO/MEO away). The output stays ASCII (the delta-v column
-prints as ``delta_v_estimate``).
+``MANEUVER_DETECT_SELECTION_OBJECTIVE`` (``macro`` default — weight every orbit class equally,
+lifting GEO without trading LEO/MEO away; ``pooled`` to optimise the pooled above-floor recall
+instead). The output stays ASCII (the delta-v column prints as ``delta_v_estimate``).
 """
 
 from __future__ import annotations
@@ -42,17 +42,20 @@ from pathlib import Path
 import pandas as pd
 
 from maneuver_detect.benchmark import SplitName, TemporalSplit
+from maneuver_detect.datasets.catalogue import DATASET_VERSION
 from maneuver_detect.labels.record import ManeuverLabel, OrbitClass
 from maneuver_detect.models.module import LossName
 from maneuver_detect.schema import ManeuverType
 
 _ROOT = Path(__file__).resolve().parents[1]
-_DATA = _ROOT / "dataset" / "v0.2"
+# Track the bundled catalogue version, so the committed labels/splits and the reconstruction recipe
+# stay in lockstep (a catalogue bump repoints both without editing this driver).
+_DATA = _ROOT / "dataset" / f"v{'.'.join(DATASET_VERSION.split('.')[:2])}"
 _DEFAULT_EPOCHS = 150
 
 
 def _load_labels_by_norad(path: Path) -> dict[int, list[ManeuverLabel]]:
-    """Parse ``dataset/v0.2/labels.json`` into ManeuverLabels keyed by NORAD id."""
+    """Parse the dataset's ``labels.json`` into ManeuverLabels keyed by NORAD id."""
     by_norad: dict[int, list[ManeuverLabel]] = defaultdict(list)
     for record in json.loads(path.read_text()):
         norad_id = record["norad_id"]
@@ -80,8 +83,8 @@ def _has_credentials() -> bool:
 
 
 def _selection_objective() -> str:
-    """The class-balance objective from ``MANEUVER_DETECT_SELECTION_OBJECTIVE`` (default pooled)."""
-    value = os.environ.get("MANEUVER_DETECT_SELECTION_OBJECTIVE", "pooled")
+    """The class-balance objective from ``MANEUVER_DETECT_SELECTION_OBJECTIVE`` (default macro)."""
+    value = os.environ.get("MANEUVER_DETECT_SELECTION_OBJECTIVE", "macro")
     if value not in ("pooled", "macro"):
         raise SystemExit(
             f"MANEUVER_DETECT_SELECTION_OBJECTIVE must be 'pooled' or 'macro', got {value!r}"
@@ -90,7 +93,7 @@ def _selection_objective() -> str:
 
 
 def _guide_without_credentials() -> int:
-    print("This run reconstructs the real v0.2 dataset from Space-Track and needs credentials.")
+    print("This run reconstructs the real dataset from Space-Track and needs credentials.")
     print("Set the two environment variables and re-run on a GPU box:")
     print("  export SPACETRACK_USERNAME='you@example.com'")
     print("  export SPACETRACK_PASSWORD='your-space-track-password'")
@@ -122,7 +125,7 @@ def main() -> int:
     labels_by_norad = _load_labels_by_norad(_DATA / "labels.json")
     split = TemporalSplit.from_json((_DATA / "splits.json").read_text())
 
-    print("Reconstructing the v0.2 dataset from Space-Track (credentialed, rate-limited)...")
+    print("Reconstructing the dataset from Space-Track (credentialed, rate-limited)...")
     dataset = reconstruct(recipe(), SpacetrackFetcher(), labels_by_norad)
     sliced = objects_from_labelled_dataset(dataset, split)
     series_by_norad = {obj.norad_id: obj.series for obj in dataset.objects}
@@ -150,7 +153,7 @@ def main() -> int:
         # Select the checkpoint on the val-split benchmark recall (the metric we publish), not the
         # BCE val_loss surrogate (which bottoms out fast and undertrains the GEO signal).
         val_benchmark=val_spec,
-        metadata={"dataset_version": "0.2.0"},
+        metadata={"dataset_version": DATASET_VERSION},
     )
     gpu_hours = (time.time() - started) / 3600.0
 
