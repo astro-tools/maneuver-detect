@@ -50,6 +50,47 @@ inter-elset gap**, not a continuous timestamp.
 - **Δv error** where Δv ground truth exists (LEO altimetry, via DORIS): reported per class, expected within
   about ±25% above the floor; not scored below the floor or for radial-dominated maneuvers.
 
+## Confidence calibration
+
+A detector's per-detection `confidence` is meaningful only if it matches the empirical hit-rate: among
+detections at confidence ~`p`, about a fraction `p` should be true positives. Calibration measures and corrects
+that, **fit on the validation split only** so the test labels are never touched.
+
+- **Reliability diagrams** bin the detections by confidence and plot the mean predicted confidence against the
+  empirical precision in each bin; the **expected calibration error** (ECE) and **Brier score** summarise the
+  gap. A perfectly calibrated detector sits on the diagonal.
+- **Temperature scaling** rescales the confidence — `sigmoid(logit(confidence) / T)` for a single `T` fit on
+  the val split — so an over-confident detector (`T > 1`) is softened toward its realised hit-rate.
+- **Conformal prediction** turns a confidence into a maneuver / false-alarm prediction set with a marginal
+  coverage guarantee (at least `1 - alpha`), calibrated on the val split.
+- **Per-class operating points.** Each class's operating point is the confidence cut at which its false-alarm
+  rate reaches the target (1 FA/sat-year) — `ClassMetrics.operating_point_confidence`, published per class so a
+  consumer knows the confidence threshold the headline recall is read at.
+
+The `(confidence, outcome)` pairs a calibrator is fit on come from the **same** matching the scorer uses, on
+the val split:
+
+```python
+from maneuver_detect.calibration import CalibratedDetector, expected_calibration_error
+from maneuver_detect.labels.record import OrbitClass
+from maneuver_detect.models.evaluate import calibration_samples_on_val, fit_temperature_on_val
+
+# Fit one temperature on the detector's val-split detections (the test labels are untouched).
+temperature = fit_temperature_on_val(detector, series_by_norad, labels, split)
+
+# Wrap any detector so it emits calibrated confidence — the classical reference included.
+calibrated = CalibratedDetector(detector, temperature)
+
+# Reliability per class, from the val samples.
+samples = calibration_samples_on_val(detector, series_by_norad, labels, split)
+leo = samples[OrbitClass.LEO]
+ece = expected_calibration_error(leo.confidences, leo.outcomes)
+```
+
+Calibration only rescales the confidence column — it does not change which gaps a detector fires on, just how
+confident it says it is. The reliability diagrams and per-class operating points for each shipped detector are
+published with the versioned models.
+
 ## Scorer
 
 The scorer is **deterministic**: a predictions file plus the held-out labels go in, the score report comes

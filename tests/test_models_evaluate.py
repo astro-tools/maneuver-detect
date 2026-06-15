@@ -14,6 +14,8 @@ from maneuver_detect.detectors.base import Detector
 from maneuver_detect.labels.record import ManeuverLabel, OrbitClass
 from maneuver_detect.models import evaluate
 from maneuver_detect.models.evaluate import (
+    calibration_samples_on_val,
+    fit_temperature_on_val,
     macro_above_floor_recall,
     objective_recall,
     pooled_above_floor_recall,
@@ -284,3 +286,50 @@ def test_tune_thresholds_per_class_rejects_empty_candidates() -> None:
         tune_thresholds_per_class_on_val(
             lambda _t: ClassicalDetector(), {}, [], _split(), candidates=()
         )
+
+
+# --- val-split calibration samples (uncertainty calibration, fit on val only) ------------------
+
+
+def test_calibration_samples_recover_a_true_positive_on_val() -> None:
+    # A val object with an above-floor burn in the val era: the classical detector recovers it, so
+    # the LEO samples carry that true positive (outcome 1.0); other classes have no detections.
+    frame = synthetic_series(norad_id=1, seed=0, n=900, burns=(Burn(450, "in_track_ms", 4.0),))
+    labels = [_label(frame, 450, 4.0)]
+    split = _split(val=frozenset({1}))
+
+    samples = calibration_samples_on_val(ClassicalDetector(), {1: frame}, labels, split)
+    leo = samples[OrbitClass.LEO]
+    assert len(leo) >= 1
+    assert 1.0 in set(leo.outcomes.tolist())  # the recovered burn is a true positive
+    assert len(leo.confidences) == len(leo.outcomes)
+    assert len(samples[OrbitClass.GEO]) == 0  # no GEO objects -> no GEO samples
+
+
+def test_calibration_samples_read_only_the_named_partition() -> None:
+    # The object is in TEST, not VAL, so calibrating on the VAL partition reads nothing from it —
+    # the no-leakage guarantee: a calibrator fit on val never sees the test object's detections.
+    frame = synthetic_series(norad_id=1, seed=0, n=900, burns=(Burn(700, "in_track_ms", 4.0),))
+    labels = [_label(frame, 700, 4.0)]
+    split = _split(test=frozenset({1}))
+
+    samples = calibration_samples_on_val(ClassicalDetector(), {1: frame}, labels, split)
+    assert all(len(s) == 0 for s in samples.values())
+
+
+def test_fit_temperature_on_val_returns_a_positive_temperature() -> None:
+    frame = synthetic_series(norad_id=1, seed=0, n=900, burns=(Burn(450, "in_track_ms", 4.0),))
+    labels = [_label(frame, 450, 4.0)]
+    split = _split(val=frozenset({1}))
+
+    temperature = fit_temperature_on_val(ClassicalDetector(), {1: frame}, labels, split)
+    assert temperature.temperature > 0.0
+
+
+def test_fit_temperature_on_val_raises_without_samples() -> None:
+    # No val members -> no matched detections -> nothing to calibrate on.
+    frame = synthetic_series(norad_id=1, seed=0, n=900, burns=(Burn(700, "in_track_ms", 4.0),))
+    labels = [_label(frame, 700, 4.0)]
+    split = _split(test=frozenset({1}))
+    with pytest.raises(ValueError, match="no matched detections"):
+        fit_temperature_on_val(ClassicalDetector(), {1: frame}, labels, split)

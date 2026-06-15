@@ -150,6 +150,10 @@ class ClassMetrics:
             secondary lower bound, or ``None`` when the class has no labels.
         pr_curve: ``(fa_per_sat_year, recall, precision, recall_ci, precision_ci)`` over the sweep.
         confusion: Type confusion over the above-floor true positives at ``operating_point``.
+        operating_point_confidence: The confidence cut at ``operating_point`` — the lowest
+            confidence still admitted within the false-alarm budget, i.e. the per-class operating
+            point an uncertainty-calibration pass publishes. ``None`` when no detection is admitted.
+            Not part of the serialised (release-frozen) report; an in-memory convenience.
     """
 
     orbit_class: OrbitClass
@@ -167,6 +171,7 @@ class ClassMetrics:
     full_population_recall: float | None
     pr_curve: tuple[PRPoint, ...]
     confusion: Confusion
+    operating_point_confidence: float | None = None
 
 
 # One detection attributed to a class, with the outcome the metric scores it as.
@@ -342,6 +347,7 @@ def _score_class(
         full_population_recall=full_recall,
         pr_curve=pr_curve,
         confusion=Confusion(counts=confusion),
+        operating_point_confidence=cut.cut_confidence,
     )
 
 
@@ -353,6 +359,7 @@ class _Cut:
     tp_below: int
     fp: int
     included_typed: tuple[_ClassDetection, ...]
+    cut_confidence: float | None
 
     @property
     def precision_counts(self) -> tuple[int, int]:
@@ -365,9 +372,12 @@ def _walk(ranked: list[_ClassDetection], target_fp: float) -> _Cut:
     Ignored (below-floor) matches neither consume the false-alarm budget nor break the walk; they
     are carried as full-population recoveries. The walk stops the instant admitting a false alarm
     would push the count past the budget — the cut is the highest-confidence point within it.
+    ``cut_confidence`` is the confidence of the lowest detection admitted (the operating-point
+    threshold), or ``None`` when nothing is admitted.
     """
     tp_above = tp_below = fp = 0
     included_typed: list[_ClassDetection] = []
+    cut_confidence: float | None = None
     for det in ranked:
         if det.outcome is _Outcome.FP:
             if fp + 1 > target_fp:
@@ -379,7 +389,14 @@ def _walk(ranked: list[_ClassDetection], target_fp: float) -> _Cut:
                 included_typed.append(det)
         else:  # TP_BELOW — ignored for scoring, counted only for full-population recall
             tp_below += 1
-    return _Cut(tp_above=tp_above, tp_below=tp_below, fp=fp, included_typed=tuple(included_typed))
+        cut_confidence = det.confidence  # admitted detections only (the break skips this)
+    return _Cut(
+        tp_above=tp_above,
+        tp_below=tp_below,
+        fp=fp,
+        included_typed=tuple(included_typed),
+        cut_confidence=cut_confidence,
+    )
 
 
 def _recall(tp: int, n_above_floor: int) -> float | None:
