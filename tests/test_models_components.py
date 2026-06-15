@@ -9,7 +9,7 @@ import torch
 
 from maneuver_detect.errors import ManeuverDetectError
 from maneuver_detect.models.bilstm import BiLstmConfig
-from maneuver_detect.models.checkpoint import ModelBundle, build_network, load_bundle
+from maneuver_detect.models.checkpoint import ModelBundle, build_network, load_bundle, save_bundle
 from maneuver_detect.models.module import TrainHyperParams
 from maneuver_detect.models.transformer import TransformerConfig
 
@@ -118,6 +118,41 @@ def test_model_bundle_metadata_defaults_to_empty() -> None:
         threshold=0.5,
     )
     assert bundle.metadata == {}
+    assert bundle.class_thresholds == {}
+
+
+def test_save_load_round_trips_class_thresholds(tmp_path: Path) -> None:
+    bundle = ModelBundle(
+        network_config={"network": "bilstm"},
+        state_dict={},
+        normaliser={},
+        train_hparams={},
+        window=64,
+        stride=32,
+        threshold=0.5,
+        class_thresholds={"GEO": 0.3, "LEO": 0.6},
+    )
+    path = tmp_path / "tuned.pt"
+    save_bundle(bundle, path)
+    assert load_bundle(path).class_thresholds == {"GEO": 0.3, "LEO": 0.6}
+
+
+def test_load_bundle_without_class_thresholds_is_back_compatible(tmp_path: Path) -> None:
+    # A checkpoint saved before per-class tuning has no class_thresholds key; it must still load,
+    # with an empty map (so the scalar threshold gates every class).
+    payload = {
+        "network_config": {"network": "bilstm"},
+        "state_dict": {},
+        "normaliser": {},
+        "train_hparams": {},
+        "window": 64,
+        "stride": 32,
+        "threshold": 0.5,
+        # "class_thresholds" deliberately omitted (a pre-tuning checkpoint).
+    }
+    path = tmp_path / "legacy.pt"
+    torch.save(payload, path)
+    assert load_bundle(path).class_thresholds == {}
 
 
 def test_load_bundle_reports_a_missing_required_key_clearly(tmp_path: Path) -> None:

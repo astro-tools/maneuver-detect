@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
@@ -11,6 +12,7 @@ import maneuver_detect
 from _synthetic import Burn, object_series, synthetic_series
 from maneuver_detect.detectors import available_models, get_detector
 from maneuver_detect.detectors.transformer import CHECKPOINT_ENV, TransformerDetector
+from maneuver_detect.labels.record import OrbitClass
 from maneuver_detect.models.checkpoint import ModelBundle, save_bundle
 from maneuver_detect.models.train import train_transformer
 from maneuver_detect.models.transformer import TransformerConfig
@@ -100,4 +102,33 @@ def test_threshold_gates_detection_count(bundle: ModelBundle) -> None:
     frame = synthetic_series(norad_id=1, seed=5, burns=(Burn(45, "in_track_ms", 4.0),), n=90)
     low = TransformerDetector(bundle, threshold=0.1).detect(frame)
     high = TransformerDetector(bundle, threshold=0.99).detect(frame)
+    assert len(high) <= len(low)
+
+
+def test_per_class_threshold_overrides_resolve(bundle: ModelBundle) -> None:
+    # The shared _LearnedDetector resolves the gate per orbit class: explicit per-class map, with a
+    # fallback to the bundle's scalar threshold for any class without its own entry.
+    detector = TransformerDetector(bundle, class_thresholds={"LEO": 0.1, "GEO": 0.9})
+    assert detector._threshold_for(OrbitClass.LEO) == 0.1
+    assert detector._threshold_for(OrbitClass.GEO) == 0.9
+    assert detector._threshold_for(OrbitClass.MEO) == bundle.threshold  # no gate -> scalar fallback
+    # A scalar threshold override takes precedence over every per-class gate.
+    override = TransformerDetector(bundle, threshold=0.42, class_thresholds={"LEO": 0.1})
+    assert override._threshold_for(OrbitClass.LEO) == 0.42
+
+
+def test_per_class_thresholds_adopted_from_bundle(bundle: ModelBundle) -> None:
+    tuned = replace(bundle, class_thresholds={"LEO": 0.2, "GEO": 0.7})
+    assert TransformerDetector(tuned)._class_thresholds == {"LEO": 0.2, "GEO": 0.7}
+    # A constructor-supplied map wins over the bundle's.
+    explicit = TransformerDetector(tuned, class_thresholds={"LEO": 0.05})
+    assert explicit._class_thresholds == {"LEO": 0.05}
+
+
+def test_per_class_threshold_gates_detection_count(bundle: ModelBundle) -> None:
+    # The synthetic object is LEO, so its LEO per-class gate controls the detections — a high LEO
+    # gate yields no more than a low one (the per-class analogue of the scalar gate).
+    frame = synthetic_series(norad_id=1, seed=5, burns=(Burn(45, "in_track_ms", 4.0),), n=90)
+    low = TransformerDetector(bundle, class_thresholds={"LEO": 0.1}).detect(frame)
+    high = TransformerDetector(bundle, class_thresholds={"LEO": 0.99}).detect(frame)
     assert len(high) <= len(low)

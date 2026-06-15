@@ -207,6 +207,17 @@ def test_build_model_card_renders_test_metrics_table(bundle_path: Path) -> None:
     assert "`test_report`" not in card
 
 
+def test_build_model_card_renders_per_class_thresholds(bundle_path: Path) -> None:
+    base = load_bundle(bundle_path)
+    # An untuned bundle (no per-class gates) carries no per-class threshold line.
+    assert "Per-class detection thresholds" not in build_model_card(base, "bilstm-base")
+    tuned = replace(base, class_thresholds={"GEO": 0.3, "LEO": 0.6})
+    card = build_model_card(tuned, "bilstm-base")
+    assert "Per-class detection thresholds" in card
+    assert "GEO 0.300" in card
+    assert card.index("LEO 0.600") < card.index("GEO 0.300")  # altitude order, not alphabetical
+
+
 def test_build_model_card_test_table_matches_real_report_schema(bundle_path: Path) -> None:
     # Guards against drift between ScoreReport.to_json() and the card renderer: a real (empty)
     # report round-trips through metadata and renders an all-undefined table without error.
