@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "maneuver-detect"
-version = "0.2.0"
+version = "0.3.0"
 description = "Open dataset, models, and benchmark for detecting orbital maneuvers from public TLE history."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -54,7 +54,8 @@ dependencies = [
 ]
 
 # The time-series foundation-model stack is an optional extra so the base install stays
-# light and fully permissive. It is wired here but not exercised by the v0.1 surface.
+# light and fully permissive. The forecast-residual detector lives behind it; the base install
+# excludes it and the backend is imported lazily, so it never loads unless requested.
 [project.optional-dependencies]
 foundation = [
   "chronos-forecasting>=2.0",
