@@ -199,6 +199,11 @@ def _class_payload(metrics: ClassMetrics) -> dict[str, object]:
         "precision": metrics.precision,
         "precision_ci": _ci_payload(metrics.precision_ci),
         "full_population_recall": metrics.full_population_recall,
+        # The per-class operating point (D7) — the confidence cut admitted within the false-alarm
+        # budget at the headline rate, the threshold an uncertainty-calibration pass publishes. An
+        # additive v0.3-boundary field: ``None`` when no detection is admitted (the v0.2 report kept
+        # it in-memory only; persisting it is the v0.3 protocol bump).
+        "operating_point_confidence": metrics.operating_point_confidence,
         "pr_curve": [_pr_payload(point) for point in metrics.pr_curve],
         "confusion": _confusion_payload(metrics.confusion),
     }

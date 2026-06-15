@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import pytest
 
 from _leaderboard import build_fixture, detection, honest_predictions, partial_predictions
-from maneuver_detect.benchmark import predictions_to_json
+from maneuver_detect.benchmark import predictions_to_json, read_predictions, score
 from maneuver_detect.leaderboard import (
     InvalidSubmissionError,
     LeaderboardService,
@@ -55,6 +55,24 @@ def test_response_is_aggregate_only() -> None:
         "headline_recall_above_floor",
         "timing_only_floor_auc",
     }
+
+
+def test_protocol_bump_field_is_inert_to_the_public_response() -> None:
+    # The v0.3 protocol bump adds ``operating_point_confidence`` to ``ScoreReport.to_json``. The
+    # leaderboard re-scores submissions through the same scorer, so the field is present in the
+    # report it computes — but the public response is a strict aggregate subset, so the new field
+    # neither leaks into a response nor changes scoring (the Space tolerates it by ignoring it).
+    fixture = build_fixture()
+    service = LeaderboardService(fixture)
+    report = score(read_predictions(honest_predictions()), list(fixture.labels), list(fixture.exposure))
+    assert "operating_point_confidence" in report.to_json()  # the bump is live in the scorer
+    public = service.public_result(report)
+    assert set(public) == {
+        "operating_point_fa_per_sat_year",
+        "headline_recall_above_floor",
+        "timing_only_floor_auc",
+    }
+    assert "operating_point_confidence" not in json.dumps(public, default=str)
 
 
 def test_response_carries_no_per_label_match_table() -> None:

@@ -27,6 +27,7 @@
       "n_labels_total": 0,
       "n_objects": 1,
       "operating_point": 1.0,
+      "operating_point_confidence": null,
       "orbit_class": "GEO",
       "pr_curve": [
         {
@@ -85,6 +86,7 @@
       "n_labels_total": 0,
       "n_objects": 0,
       "operating_point": 1.0,
+      "operating_point_confidence": null,
       "orbit_class": "HEO",
       "pr_curve": [
         {
@@ -140,6 +142,7 @@
       "n_labels_total": 0,
       "n_objects": 0,
       "operating_point": 1.0,
+      "operating_point_confidence": null,
       "orbit_class": "IGSO",
       "pr_curve": [
         {
@@ -195,6 +198,7 @@
       "n_labels_total": 4,
       "n_objects": 1,
       "operating_point": 1.0,
+      "operating_point_confidence": 0.5,
       "orbit_class": "LEO",
       "pr_curve": [
         {
@@ -274,6 +278,7 @@
       "n_labels_total": 1,
       "n_objects": 1,
       "operating_point": 1.0,
+      "operating_point_confidence": 0.6,
       "orbit_class": "MEO",
       "pr_curve": [
         {

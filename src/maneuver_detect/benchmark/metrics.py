@@ -153,7 +153,8 @@ class ClassMetrics:
         operating_point_confidence: The confidence cut at ``operating_point`` — the lowest
             confidence still admitted within the false-alarm budget, i.e. the per-class operating
             point an uncertainty-calibration pass publishes. ``None`` when no detection is admitted.
-            Not part of the serialised (release-frozen) report; an in-memory convenience.
+            Serialised into the report as an additive field from the v0.3 protocol bump (the v0.2
+            report kept it in-memory only).
     """
 
     orbit_class: OrbitClass

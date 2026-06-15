@@ -1,4 +1,4 @@
-# maneuver-detect — design decisions (D1–D16)
+# maneuver-detect — design decisions (D1–D17)
 
 The frozen decision record, consolidating the prerequisite spikes (under [`spikes/`](spikes/)) and the
 project charter. **No implementation lands until it matches this record.** Each decision states the call
@@ -15,7 +15,9 @@ v0.3 decision — the foundation-model baseline (Chronos/TimesFM forecast-residu
 decision — the expanded label-source set and the new IGSO orbit class (HEO reserved but deferred) for the v0.3
 dataset-growth pass (the V2-survey follow-up #2), extending D3/D4/D9/D13. **D16** settles the V7 follow-up — the
 hidden-label competition track (a never-committed forward holdout) the D12 amendment deferred — gating the
-competition-board build.
+competition-board build. **D17** is the v0.3 score-protocol bump — the per-class operating point persisted into
+the report JSON and confidence calibration applied to the published baselines, folding in the publish half of
+the uncertainty-calibration work, extending D7/D8/D11.
 
 ---
 
@@ -429,6 +431,45 @@ its code.
   it (the V7 → D12 discipline).
 
 Detail in [`spikes/v7-followup-hidden-label-competition.md`](spikes/v7-followup-hidden-label-competition.md).
+
+---
+
+## D17 — v0.3 score-protocol bump: per-class operating point in the report JSON + calibrated confidence — *v0.3*
+
+The publish half of the uncertainty-calibration work, applied to the real v0.3 baselines: make the
+``confidence`` column mean what it says, and persist the per-class operating point the calibration publishes.
+The calibration *machinery* (reliability diagnostics, temperature scaling, split-conformal) landed earlier as
+offline, synthetic-tested model-agnostic code; this decision fixes how it is **applied and shipped**, and the
+one byte-stable-artifact (D8) boundary change it forces.
+
+- **The protocol bump (D17.1).** ``ScoreReport.to_json`` gains a per-class ``operating_point_confidence`` —
+  the confidence cut admitted within the false-alarm budget at the headline operating point (the D7 curve's
+  per-class point), ``None`` when no detection is admitted. It is **additive** (every prior field is byte-for-
+  byte unchanged; sorted-key canonical JSON places it deterministically) but it **changes the frozen artifact**,
+  so it is a v0.3-boundary change, not a v0.2 patch: the v0.2 report deliberately kept this value **in-memory
+  only** (an ``ClassMetrics`` convenience), and the release-frozen v0.2 ``scores.json`` snapshot is left as it
+  was. The committed scorer golden is regenerated at this boundary.
+- **Confidence calibration is baked into the artifact, not re-fit at load (D17.2).** Each published detector
+  carries a calibrator (temperature scaling, plus a split-conformal predictor for prediction sets) **fit on the
+  val split only** — never the test labels — and frozen into its bundle alongside the weights/thresholds, so a
+  loaded detector emits **calibrated** confidence with no calibration data at inference (the same
+  card-cannot-drift-from-weights discipline as D8). The emitted scalar ``confidence`` is the temperature-
+  calibrated probability; conformal rides along for the reliability/operating-point reporting (a prediction set
+  is not a scalar). Old bundles without a calibrator load unchanged (the back-compatible ``None``).
+- **Reliability + per-class operating points are published, not asserted (D17.3).** The per-detector, per-class
+  reliability curve (binned predicted-vs-empirical) and the calibrated per-class operating point are recorded
+  into the bundle from the same val-split run and rendered onto the generated model card and the benchmark docs.
+  Consistent with the recipe-first / no-committed-real-data convention, the **committed** docs carry the
+  methodology and a bundle→diagram render helper rather than real-data figures; the figures themselves are
+  rendered at the credentialed release-cut run and uploaded to the Hub cards.
+- **The leaderboard tolerates the field by ignoring it (D17.4).** The leaderboard re-scores submissions through
+  the same scorer (so the field is present in the report it computes) but its public response is a strict
+  aggregate subset — headline above-floor recall per class, the operating point, and the timing floor — so the
+  new field neither leaks into a response nor changes scoring. The submission reader's fixed-schema integrity
+  surface (D12) is unchanged: it guards the *predictions* file, not the report JSON.
+- **Scope (D8).** This decision is the *application* boundary; the calibration mechanism and the class-balanced
+  selection objective / per-class detection thresholds landed separately. Per-class detection-threshold
+  refinement for the foundation residual gate is a later follow-up (it keeps one global gate here).
 
 ---
 
