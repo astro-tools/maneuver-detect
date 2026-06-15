@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from maneuver_detect.benchmark import ScoreReport, SplitName, TemporalSplit
+    from maneuver_detect.calibration import BundledCalibration
     from maneuver_detect.detectors.foundation import Forecaster, _ForecastResidualDetector
     from maneuver_detect.labels.record import ManeuverLabel
 
@@ -112,6 +113,10 @@ class FoundationBundle:
         metadata: Free-form provenance (dataset version, the held-out ``test_report``, the measured
             single-GPU cost) the model card is generated from, so the card cannot drift from the
             weights.
+        calibration: The fitted, val-only uncertainty calibration baked into the bundle (a
+            :class:`~maneuver_detect.calibration.BundledCalibration`), applied to the detector's
+            emitted ``confidence`` at inference. ``None`` for a bundle calibrated before this slot
+            existed (it then emits raw confidence unchanged).
     """
 
     backend: str
@@ -121,6 +126,7 @@ class FoundationBundle:
     class_thresholds: dict[str, float]
     finetune_state: dict[str, torch.Tensor] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    calibration: BundledCalibration | None = None
 
 
 def save_foundation_bundle(bundle: FoundationBundle, path: str | Path) -> None:
@@ -133,6 +139,7 @@ def save_foundation_bundle(bundle: FoundationBundle, path: str | Path) -> None:
         "class_thresholds": bundle.class_thresholds,
         "finetune_state": bundle.finetune_state,
         "metadata": bundle.metadata,
+        "calibration": None if bundle.calibration is None else bundle.calibration.to_dict(),
     }
     torch.save(payload, Path(path))
 
@@ -163,7 +170,19 @@ def load_foundation_bundle(path: str | Path, *, map_location: str = "cpu") -> Fo
         class_thresholds=dict(payload["class_thresholds"]),
         finetune_state=payload.get("finetune_state"),
         metadata=payload.get("metadata", {}),
+        # Not a required key: a bundle calibrated before this slot existed has none, and the
+        # detector emits raw confidence (the back-compatible fallback).
+        calibration=_load_calibration(payload.get("calibration")),
     )
+
+
+def _load_calibration(data: Any) -> BundledCalibration | None:
+    """Reconstruct a bundle's :class:`BundledCalibration` from its payload dict (``None`` if absent)."""
+    if data is None:
+        return None
+    from maneuver_detect.calibration import BundledCalibration
+
+    return BundledCalibration.from_dict(data)
 
 
 def zero_shot_bundle(

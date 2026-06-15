@@ -9,9 +9,12 @@ import pytest
 from maneuver_detect.calibration import (
     FALSE_ALARM,
     MANEUVER,
+    BundledCalibration,
     CalibratedDetector,
+    CalibrationSamples,
     ConformalPredictor,
     TemperatureScaling,
+    apply_calibration,
     brier_score,
     expected_calibration_error,
     reliability_curve,
@@ -193,5 +196,69 @@ def test_calibrated_detector_transforms_confidence_and_keeps_schema() -> None:
 
 def test_calibrated_detector_passes_through_empty_frame() -> None:
     out = CalibratedDetector(_FixedDetector([]), TemperatureScaling(2.0)).detect(pd.DataFrame())
+    assert out.empty
+    assert list(out.columns) == list(COLUMNS)
+
+
+# --- the bundled, serialisable calibration (D17) ------------------------------------------------
+
+
+def _val_samples() -> dict[str, CalibrationSamples]:
+    """Per-orbit-class val samples — a rich LEO class and an empty (sparse) IGSO class."""
+    rng = np.random.default_rng(0)
+    conf = rng.uniform(0.0, 1.0, size=64)
+    # An over-confident detector: a detection fires true a bit below its stated confidence.
+    outcome = (rng.uniform(0.0, 1.0, size=64) < conf * 0.7).astype(np.float64)
+    return {
+        "LEO": CalibrationSamples(conf, outcome),
+        "IGSO": CalibrationSamples(np.asarray([], dtype=np.float64), np.asarray([], dtype=np.float64)),
+    }
+
+
+def test_bundled_calibration_fit_pools_and_measures_per_class() -> None:
+    cal = BundledCalibration.fit(_val_samples(), alpha=0.1, n_bins=10)
+    assert cal.temperature > 0.0
+    assert 0.0 <= cal.conformal_q <= 1.0
+    assert cal.conformal_alpha == 0.1
+    # Reliability + ECE are present for every class given, including the empty one.
+    assert set(cal.reliability) == {"LEO", "IGSO"}
+    assert set(cal.ece) == {"LEO", "IGSO"}
+    # An empty class yields an all-empty reliability curve and a zero ECE (sparse IGSO rides through).
+    assert cal.ece["IGSO"] == 0.0
+    assert not cal.reliability["IGSO"].populated()
+    assert cal.reliability["LEO"].populated()
+
+
+def test_bundled_calibration_dict_round_trips() -> None:
+    cal = BundledCalibration.fit(_val_samples())
+    assert BundledCalibration.from_dict(cal.to_dict()) == cal
+
+
+def test_bundled_calibration_fit_rejects_all_empty() -> None:
+    empty = {"LEO": CalibrationSamples(np.asarray([]), np.asarray([]))}
+    with pytest.raises(ValueError, match="no matched detections"):
+        BundledCalibration.fit(empty)
+
+
+def test_bundled_calibration_temperature_scaling_is_the_baked_calibrator() -> None:
+    cal = BundledCalibration.fit(_val_samples())
+    assert cal.temperature_scaling().temperature == cal.temperature
+
+
+def test_apply_calibration_remaps_confidence_and_keeps_schema() -> None:
+    frame = _FixedDetector([0.9, 0.1, 0.5]).detect(pd.DataFrame())
+    temperature = TemperatureScaling(temperature=2.0)
+    out = apply_calibration(frame, temperature)
+    assert list(out.columns) == list(COLUMNS)
+    assert out["confidence"].to_numpy() == pytest.approx(temperature.transform(frame["confidence"].to_numpy()))
+    # Every non-confidence column is preserved unchanged.
+    for column in COLUMNS:
+        if column != "confidence":
+            assert out[column].tolist() == frame[column].tolist()
+
+
+def test_apply_calibration_passes_through_empty_frame() -> None:
+    empty = _FixedDetector([]).detect(pd.DataFrame())
+    out = apply_calibration(empty, TemperatureScaling(2.0))
     assert out.empty
     assert list(out.columns) == list(COLUMNS)

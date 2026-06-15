@@ -66,6 +66,29 @@ def test_empty_history_returns_empty_canonical_frame(bundle: ModelBundle) -> Non
     assert out.empty
 
 
+def test_baked_calibration_is_applied_to_emitted_confidence(bundle: ModelBundle) -> None:
+    # A bundle carrying a fitted calibrator emits calibrated confidence: the detections are
+    # unchanged (only confidence is remapped), each through the bundle's temperature.
+    from maneuver_detect.calibration import BundledCalibration, TemperatureScaling
+
+    history = synthetic_series(norad_id=1, seed=3, n=120, burns=(Burn(45, "in_track_ms", 4.0),))
+    # Gate at 0 so every gap fires — guarantees a non-empty frame to exercise the remap.
+    raw_bundle = replace(bundle, threshold=0.0, class_thresholds={})
+    raw = BiLstmDetector(raw_bundle).detect(history)
+    assert not raw.empty
+
+    calibration = BundledCalibration(
+        temperature=2.0, conformal_q=0.5, conformal_alpha=0.1, reliability={}, ece={}
+    )
+    out = BiLstmDetector(replace(raw_bundle, calibration=calibration)).detect(history)
+    # Same detections (epoch/norad), confidence temperature-scaled and still in range.
+    assert out[["norad_id", "epoch"]].equals(raw[["norad_id", "epoch"]])
+    expected = TemperatureScaling(2.0).transform(raw["confidence"].to_numpy())
+    assert out["confidence"].to_numpy() == pytest.approx(expected)
+    assert (out["confidence"] != raw["confidence"]).any()
+    assert out["confidence"].between(0.0, 1.0).all()
+
+
 def test_dispatch_through_env_var_checkpoint(
     bundle: ModelBundle, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

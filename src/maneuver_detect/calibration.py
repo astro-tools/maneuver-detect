@@ -22,8 +22,9 @@ matching the scorer uses.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import ClassVar, Protocol, runtime_checkable
+from typing import Any, ClassVar, Protocol, runtime_checkable
 
 import numpy as np
 import numpy.typing as npt
@@ -34,6 +35,7 @@ from maneuver_detect.detectors.base import Detector
 __all__ = [
     "FALSE_ALARM",
     "MANEUVER",
+    "BundledCalibration",
     "CalibratedDetector",
     "CalibrationSamples",
     "Calibrator",
@@ -41,6 +43,7 @@ __all__ = [
     "ReliabilityBin",
     "ReliabilityCurve",
     "TemperatureScaling",
+    "apply_calibration",
     "brier_score",
     "expected_calibration_error",
     "reliability_curve",
@@ -300,6 +303,23 @@ class ConformalPredictor:
         return truth in self.predict_set(confidence)
 
 
+def apply_calibration(frame: pd.DataFrame, calibrator: Calibrator) -> pd.DataFrame:
+    """Return ``frame`` with its ``confidence`` column mapped through ``calibrator`` (clamped).
+
+    The single place a fitted calibrator is applied to a detector's canonical maneuver frame: an
+    empty frame passes through untouched, otherwise the ``confidence`` column is remapped (clamped to
+    ``[0, 1]``) and every other column — schema, dtypes, row order — is preserved. Shared by
+    :class:`CalibratedDetector` and the published detectors that carry a baked-in calibrator, so
+    inference applies calibration identically however the calibrator was supplied.
+    """
+    if frame.empty:
+        return frame
+    calibrated = calibrator.transform(frame["confidence"].to_numpy(dtype=np.float64))
+    out: pd.DataFrame = frame.copy()
+    out["confidence"] = np.clip(calibrated, 0.0, 1.0)
+    return out
+
+
 class CalibratedDetector(Detector):
     """Wrap a detector so its emitted ``confidence`` is passed through a fitted :class:`Calibrator`.
 
@@ -317,10 +337,134 @@ class CalibratedDetector(Detector):
 
     def detect(self, history: pd.DataFrame) -> pd.DataFrame:
         """Run the inner detector and return its frame with calibrated ``confidence``."""
-        frame = self.inner.detect(history)
-        if frame.empty:
-            return frame
-        calibrated = self.calibrator.transform(frame["confidence"].to_numpy(dtype=np.float64))
-        out: pd.DataFrame = frame.copy()
-        out["confidence"] = np.clip(calibrated, 0.0, 1.0)
-        return out
+        return apply_calibration(self.inner.detect(history), self.calibrator)
+
+
+@dataclass(frozen=True)
+class BundledCalibration:
+    """The fitted calibration baked into a published detector bundle — val-fit, shipped (D17).
+
+    Everything a published detector needs to emit **calibrated** confidence with no calibration data
+    at inference, plus what its model card and the benchmark docs render:
+
+    * ``temperature`` — the post-hoc :class:`TemperatureScaling` the detector applies to its emitted
+      confidence (a single pooled scalar fit across classes).
+    * ``conformal_q`` / ``conformal_alpha`` — the split-conformal predictor, for prediction-set
+      reporting (a prediction set is not a scalar, so it rides alongside the emitted confidence).
+    * ``reliability`` — the per-orbit-class reliability curve of the **calibrated** confidence (the
+      data a per-class reliability diagram plots), keyed by orbit-class value.
+    * ``ece`` — the per-orbit-class expected calibration error of the calibrated confidence, a scalar
+      calibration-quality summary the card reports.
+
+    Everything is fit on the **val** split only (never the test labels). Stored in a bundle's
+    ``calibration`` slot and round-tripped as a plain dict, so an old bundle without one loads as
+    ``None`` and behaves exactly as before.
+    """
+
+    temperature: float
+    conformal_q: float
+    conformal_alpha: float
+    reliability: dict[str, ReliabilityCurve]
+    ece: dict[str, float]
+
+    def temperature_scaling(self) -> TemperatureScaling:
+        """The fitted post-hoc calibrator the published detector applies to its confidence."""
+        return TemperatureScaling(temperature=self.temperature)
+
+    def conformal_predictor(self) -> ConformalPredictor:
+        """The fitted split-conformal predictor, for prediction-set / coverage reporting."""
+        return ConformalPredictor(q=self.conformal_q, alpha=self.conformal_alpha)
+
+    @classmethod
+    def fit(
+        cls,
+        samples: Mapping[str, CalibrationSamples],
+        *,
+        alpha: float = 0.1,
+        n_bins: int = 10,
+    ) -> BundledCalibration:
+        """Fit the bundled calibration from per-orbit-class val ``(confidence, outcome)`` samples.
+
+        Pools every class's samples to fit the single temperature and the conformal predictor (the
+        per-detector calibrator), then measures the per-class reliability and ECE on the **calibrated**
+        confidences — the curve the published detector's emitted confidence actually follows. Raises
+        :class:`ValueError` when no class carries a matched detection to calibrate on.
+        """
+        pooled_conf = (
+            np.concatenate([s.confidences for s in samples.values()])
+            if samples
+            else np.asarray([], dtype=np.float64)
+        )
+        pooled_out = (
+            np.concatenate([s.outcomes for s in samples.values()])
+            if samples
+            else np.asarray([], dtype=np.float64)
+        )
+        if pooled_conf.size == 0:
+            raise ValueError("no matched detections on the val split to calibrate on")
+        temperature = TemperatureScaling.fit(pooled_conf, pooled_out)
+        conformal = ConformalPredictor.fit(pooled_conf, pooled_out, alpha=alpha)
+        reliability: dict[str, ReliabilityCurve] = {}
+        ece: dict[str, float] = {}
+        for key, sample in samples.items():
+            calibrated = (
+                temperature.transform(sample.confidences) if len(sample) else sample.confidences
+            )
+            reliability[key] = reliability_curve(calibrated, sample.outcomes, n_bins=n_bins)
+            ece[key] = expected_calibration_error(calibrated, sample.outcomes, n_bins=n_bins)
+        return cls(
+            temperature=temperature.temperature,
+            conformal_q=conformal.q,
+            conformal_alpha=conformal.alpha,
+            reliability=reliability,
+            ece=ece,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialise to a plain dict of scalars/lists, for the bundle's :func:`torch.save` payload."""
+        return {
+            "temperature": self.temperature,
+            "conformal_q": self.conformal_q,
+            "conformal_alpha": self.conformal_alpha,
+            "reliability": {
+                key: [_bin_to_dict(b) for b in curve.bins]
+                for key, curve in self.reliability.items()
+            },
+            "ece": dict(self.ece),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> BundledCalibration:
+        """Reconstruct from :meth:`to_dict` (the inverse used by the bundle loaders)."""
+        return cls(
+            temperature=float(data["temperature"]),
+            conformal_q=float(data["conformal_q"]),
+            conformal_alpha=float(data["conformal_alpha"]),
+            reliability={
+                str(key): ReliabilityCurve(bins=tuple(_bin_from_dict(b) for b in bins))
+                for key, bins in data.get("reliability", {}).items()
+            },
+            ece={str(key): float(value) for key, value in data.get("ece", {}).items()},
+        )
+
+
+def _bin_to_dict(b: ReliabilityBin) -> dict[str, Any]:
+    return {
+        "lo": b.lo,
+        "hi": b.hi,
+        "count": b.count,
+        "mean_confidence": b.mean_confidence,
+        "empirical_precision": b.empirical_precision,
+    }
+
+
+def _bin_from_dict(data: Mapping[str, Any]) -> ReliabilityBin:
+    return ReliabilityBin(
+        lo=float(data["lo"]),
+        hi=float(data["hi"]),
+        count=int(data["count"]),
+        mean_confidence=None if data["mean_confidence"] is None else float(data["mean_confidence"]),
+        empirical_precision=(
+            None if data["empirical_precision"] is None else float(data["empirical_precision"])
+        ),
+    )

@@ -41,6 +41,7 @@ from maneuver_detect.schema import COLUMNS, Maneuver, empty_frame, to_frame
 if TYPE_CHECKING:
     from torch import nn
 
+    from maneuver_detect.calibration import Calibrator
     from maneuver_detect.features.normalize import ClassNormaliser
     from maneuver_detect.labels.record import OrbitClass
     from maneuver_detect.models.checkpoint import ModelBundle
@@ -93,6 +94,9 @@ class _LearnedDetector(Detector):
         self._threshold = 0.5
         self._threshold_override = threshold
         self._class_thresholds: dict[str, float] = dict(class_thresholds or {})
+        # The bundle's baked-in confidence calibrator, applied to emitted confidence in detect();
+        # None until a bundle carrying one is loaded (then inference emits calibrated confidence).
+        self._calibrator: Calibrator | None = None
         # No explicit bundle and no env-var path: fall back to the Hub-published checkpoint, fetched
         # lazily on the first detect() call (so construction stays network-free — the resolution
         # order is explicit bundle → $…_CHECKPOINT → Hub).
@@ -115,6 +119,10 @@ class _LearnedDetector(Detector):
         # Adopt the bundle's per-class gates unless the constructor supplied its own.
         if not self._class_thresholds:
             self._class_thresholds = dict(bundle.class_thresholds)
+        # Adopt the bundle's baked-in confidence calibrator, if any.
+        self._calibrator = (
+            bundle.calibration.temperature_scaling() if bundle.calibration is not None else None
+        )
 
     def _threshold_for(self, orbit_class: OrbitClass) -> float:
         """The per-gap gate for ``orbit_class`` — the scalar override, else the per-class value.
@@ -170,6 +178,10 @@ class _LearnedDetector(Detector):
         frame = to_frame(maneuvers)
         ordered = frame.sort_values(["norad_id", "epoch"]).reset_index(drop=True)
         result: pd.DataFrame = ordered[list(COLUMNS)]
+        if self._calibrator is not None:
+            from maneuver_detect.calibration import apply_calibration
+
+            result = apply_calibration(result, self._calibrator)
         return result
 
     def _detect_object(self, series: pd.DataFrame) -> list[Maneuver]:

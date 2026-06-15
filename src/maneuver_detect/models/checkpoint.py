@@ -18,10 +18,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch import nn
+
+if TYPE_CHECKING:
+    from maneuver_detect.calibration import BundledCalibration
 
 from maneuver_detect.errors import ManeuverDetectError
 from maneuver_detect.models.bilstm import NETWORK_KIND as BILSTM_KIND
@@ -70,6 +73,10 @@ class ModelBundle:
             ``threshold`` then gates every class — so a checkpoint saved before per-class tuning
             loads and behaves unchanged.
         metadata: Free-form provenance (seed, dataset version, measured training cost, scores).
+        calibration: The fitted, val-only uncertainty calibration baked into the bundle (a
+            :class:`~maneuver_detect.calibration.BundledCalibration`), applied to the detector's
+            emitted ``confidence`` at inference. ``None`` by default — a checkpoint saved before
+            calibration loads and emits raw confidence unchanged.
     """
 
     network_config: dict[str, Any]
@@ -81,6 +88,7 @@ class ModelBundle:
     threshold: float
     class_thresholds: dict[str, float] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    calibration: BundledCalibration | None = None
 
 
 def save_bundle(bundle: ModelBundle, path: str | Path) -> None:
@@ -95,6 +103,7 @@ def save_bundle(bundle: ModelBundle, path: str | Path) -> None:
         "threshold": bundle.threshold,
         "class_thresholds": bundle.class_thresholds,
         "metadata": bundle.metadata,
+        "calibration": None if bundle.calibration is None else bundle.calibration.to_dict(),
     }
     torch.save(payload, Path(path))
 
@@ -131,7 +140,19 @@ def load_bundle(path: str | Path, *, map_location: str = "cpu") -> ModelBundle:
             str(key): float(value) for key, value in payload.get("class_thresholds", {}).items()
         },
         metadata=payload.get("metadata", {}),
+        # Not a required key either: a checkpoint saved before calibration has none, and the
+        # detector emits raw confidence (the back-compatible fallback).
+        calibration=_load_calibration(payload.get("calibration")),
     )
+
+
+def _load_calibration(data: Any) -> BundledCalibration | None:
+    """Reconstruct a bundle's :class:`BundledCalibration` from its payload dict (``None`` if absent)."""
+    if data is None:
+        return None
+    from maneuver_detect.calibration import BundledCalibration
+
+    return BundledCalibration.from_dict(data)
 
 
 def build_network(bundle: ModelBundle) -> nn.Module:
