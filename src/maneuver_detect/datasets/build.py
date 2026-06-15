@@ -1,4 +1,4 @@
-"""Build the distributable v0.1 artifacts — recipe, labels, and the content-hash manifest.
+"""Build the distributable dataset artifacts — recipe, labels, and the content-hash manifest.
 
 The logic behind ``maneuver-detect dataset build``: fetch each catalogue object's series from the
 credentialled archive, fetch the open maneuver-label files, reconstruct the labelled dataset, and
@@ -27,16 +27,24 @@ import httpx
 
 from maneuver_detect.data.base import Fetcher
 from maneuver_detect.data.ratelimit import RateLimiter
-from maneuver_detect.datasets.catalogue import galileo_gsat_to_norad, gps_svn_to_norad
+from maneuver_detect.datasets.catalogue import (
+    galileo_gsat_to_norad,
+    goes_name_to_norad,
+    gps_svn_to_norad,
+)
 from maneuver_detect.datasets.recipe import Recipe
 from maneuver_detect.datasets.reconstruct import LabelledDataset, reconstruct
 from maneuver_detect.labels.doris import parse_doris
 from maneuver_detect.labels.galileo_nagu import parse_nagus
 from maneuver_detect.labels.gps_nanu import parse_nanus
 from maneuver_detect.labels.labeller import CoverageReport
+from maneuver_detect.labels.noaa_goes import parse_navsum
+from maneuver_detect.labels.qzss_ohi import parse_qzss_ohi
 from maneuver_detect.labels.record import (
     SOURCE_DORIS_IDS,
     SOURCE_GALILEO_NAGU,
+    SOURCE_NOAA_GOES,
+    SOURCE_QZSS_OHI,
     ManeuverLabel,
     OrbitClass,
 )
@@ -48,6 +56,8 @@ __all__ = [
     "fetch_galileo_nagu_labels",
     "fetch_labels",
     "fetch_nanu_labels",
+    "fetch_noaa_goes_labels",
+    "fetch_qzss_ohi_labels",
     "labels_from_json",
     "labels_to_json",
     "write_artifacts",
@@ -69,6 +79,18 @@ _GSC_NAGU_FILE = (
 )
 # Galileo NAGU numbers are sequential per year, so this many consecutive 404s ends a year's crawl.
 _NAGU_MISS_RUN = 25
+# The QZSS Operational History Information files — one per satellite at a stable URL keyed by the
+# OHI file stem (e.g. ``ohi-qzs2.txt``), carrying the executed-maneuver Δv log.
+_QZSS_OHI_URL = "https://qzss.go.jp/en/technical/qzssinfo/khp0mf0000000wuf-att/ohi-{ref}.txt"
+# The NOAA OSPO navigation summary — a live-state file naming each GOES bird's last maneuver. Its
+# maneuver *history* is recovered from the Internet Archive: the CDX API lists every archived
+# snapshot (``collapse=digest`` keeps only content-distinct ones), each fetched verbatim (``id_``).
+_NOAA_NAVSUM_URL = "https://www.ospo.noaa.gov/resources/cemscs/navsum.txt"
+_NOAA_CDX_URL = (
+    "https://web.archive.org/cdx/search/cdx"
+    "?url=ospo.noaa.gov/resources/cemscs/navsum.txt&output=json&collapse=digest&fl=timestamp"
+)
+_NOAA_SNAPSHOT_URL = "https://web.archive.org/web/{timestamp}id_/" + _NOAA_NAVSUM_URL
 
 
 def labels_to_json(labels: Sequence[ManeuverLabel]) -> str:
@@ -242,6 +264,88 @@ def fetch_galileo_nagu_labels(
     return labels
 
 
+def fetch_qzss_ohi_labels(
+    recipe: Recipe,
+    client: httpx.Client,
+    *,
+    rate_limiter: RateLimiter | None = None,
+) -> list[ManeuverLabel]:
+    """Fetch and parse the QZSS OHI executed-maneuver logs for the recipe's QZSS entries.
+
+    One OHI file is fetched per QZSS recipe entry (keyed by the entry's ``label_ref`` OHI stem) and
+    parsed with the entry's pinned NORAD id and orbit class (IGSO for QZS-2/4/1R, GEO for QZS-3/6).
+    A missing file (404 — e.g. a freshly launched satellite without a log yet) is skipped with a
+    warning rather than aborting. ``rate_limiter`` paces the per-file fetches.
+    """
+    labels: list[ManeuverLabel] = []
+    for entry in recipe.entries:
+        if entry.label_source != SOURCE_QZSS_OHI:
+            continue
+        if rate_limiter is not None:
+            rate_limiter.acquire()
+        response = client.get(_QZSS_OHI_URL.format(ref=entry.label_ref))
+        if response.status_code == 404:
+            print(
+                f"warning: QZSS OHI file 'ohi-{entry.label_ref}.txt' not found (404); skipping",
+                file=sys.stderr,
+            )
+            continue
+        response.raise_for_status()
+        events = parse_qzss_ohi(
+            response.text,
+            norad_id=entry.norad_id,
+            orbit_class=entry.orbit_class,
+            qzs_label=entry.object_name,
+        )
+        labels.extend(events)
+        _logger.info("QZSS OHI %s: %d maneuver events", entry.label_ref, len(events))
+    return labels
+
+
+def fetch_noaa_goes_labels(
+    client: httpx.Client,
+    *,
+    goes_name_to_norad: Mapping[str, int],
+    rate_limiter: RateLimiter | None = None,
+) -> list[ManeuverLabel]:
+    """Build the GOES maneuver history from the NOAA navsum file's Internet-Archive snapshots.
+
+    ``navsum.txt`` is a live-state file naming only each bird's *latest* maneuver, so the history is
+    recovered by replaying its archived snapshots: the Internet Archive CDX API lists every
+    content-distinct snapshot, each is fetched verbatim and parsed, and the distinct
+    ``(norad_id, maneuver-day)`` epochs are accumulated. The current live file is parsed last so the
+    newest maneuver is captured even before the archive catches up. ``rate_limiter`` paces the
+    per-snapshot fetches. Returns the deduplicated labels in discovery order.
+    """
+    timestamps: list[str] = []
+    index = client.get(_NOAA_CDX_URL)
+    if index.status_code == 200 and index.text.strip():
+        rows = json.loads(index.text)
+        timestamps = [row[0] for row in rows[1:]]  # row 0 is the ["timestamp"] header
+    sources = [_NOAA_SNAPSHOT_URL.format(timestamp=ts) for ts in timestamps] + [_NOAA_NAVSUM_URL]
+
+    seen: set[tuple[int, str]] = set()
+    labels: list[ManeuverLabel] = []
+    for url in sources:
+        if rate_limiter is not None:
+            rate_limiter.acquire()
+        response = client.get(url)
+        if response.status_code != 200:
+            continue
+        for label in parse_navsum(response.text, goes_name_to_norad=goes_name_to_norad):
+            if label.norad_id is None:
+                continue
+            key = (label.norad_id, label.window_start.isoformat())
+            if key in seen:
+                continue
+            seen.add(key)
+            labels.append(label)
+    _logger.info(
+        "NOAA GOES: %d distinct maneuver epochs over %d snapshots", len(labels), len(sources)
+    )
+    return labels
+
+
 def fetch_labels(
     recipe: Recipe,
     client: httpx.Client,
@@ -299,6 +403,18 @@ def fetch_labels(
             end_year=nanu_end_year,
             gsat_to_norad=galileo_gsat_to_norad(),
             rate_limiter=rate_limiter,
+        ):
+            if label.norad_id is not None:
+                by_norad.setdefault(label.norad_id, []).append(label)
+
+    if any(entry.label_source == SOURCE_QZSS_OHI for entry in recipe.entries):
+        for label in fetch_qzss_ohi_labels(recipe, client, rate_limiter=rate_limiter):
+            if label.norad_id is not None:
+                by_norad.setdefault(label.norad_id, []).append(label)
+
+    if any(entry.label_source == SOURCE_NOAA_GOES for entry in recipe.entries):
+        for label in fetch_noaa_goes_labels(
+            client, goes_name_to_norad=goes_name_to_norad(), rate_limiter=rate_limiter
         ):
             if label.norad_id is not None:
                 by_norad.setdefault(label.norad_id, []).append(label)

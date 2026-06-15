@@ -6,9 +6,20 @@ import httpx
 import pytest
 
 from maneuver_detect.data.ratelimit import RateLimiter
-from maneuver_detect.datasets.build import fetch_labels, fetch_nanu_labels
+from maneuver_detect.datasets.build import (
+    fetch_labels,
+    fetch_nanu_labels,
+    fetch_noaa_goes_labels,
+    fetch_qzss_ohi_labels,
+)
 from maneuver_detect.datasets.recipe import Recipe, RecipeEntry
-from maneuver_detect.labels.record import SOURCE_DORIS_IDS, SOURCE_GPS_NANU, OrbitClass
+from maneuver_detect.labels.record import (
+    SOURCE_DORIS_IDS,
+    SOURCE_GPS_NANU,
+    SOURCE_NOAA_GOES,
+    SOURCE_QZSS_OHI,
+    OrbitClass,
+)
 
 _INDEX_2024 = """
 <a href="/GPS/NANU/2024/nanu.2024001.txt">nanu.2024001.txt</a>
@@ -153,3 +164,90 @@ def test_fetch_labels_merges_doris_and_nanu_and_dedups(capsys: pytest.CaptureFix
     # The missing DORIS file was skipped with a loud warning rather than aborting the build.
     assert "not found (404)" in capsys.readouterr().err
     assert 99999 not in by_norad
+
+
+# --- fetch_qzss_ohi_labels: per-satellite OHI fetch (offline) ---
+
+_OHI_QZS2 = """\
+#+SATELLITE/MANEUVER
+#DATE TIME START(UTC),END(UTC),DURATION,DVX(m/s),DVY(m/s),DVZ(m/s)
+2018-05-20 22:04:06,2018-05-20 22:06:16,00:02:10,-1.99,0.0,0.026
+#-SATELLITE/MANEUVER
+"""
+
+
+def _qzss_recipe() -> Recipe:
+    def qzss(norad_id: int, ref: str, orbit_class: OrbitClass) -> RecipeEntry:
+        return RecipeEntry(
+            norad_id=norad_id,
+            orbit_class=orbit_class,
+            object_name=f"QZSS {ref}",
+            catalogue_source="spacetrack",
+            label_source=SOURCE_QZSS_OHI,
+            label_ref=ref,
+        )
+
+    return Recipe(
+        dataset_version="test",
+        entries=(
+            qzss(42738, "qzs2", OrbitClass.IGSO),
+            qzss(62876, "qzs6", OrbitClass.GEO),  # a freshly-launched bird with no OHI yet (404)
+        ),
+    )
+
+
+def _qzss_handler(request: httpx.Request) -> httpx.Response:
+    if request.url.path.endswith("/ohi-qzs2.txt"):
+        return httpx.Response(200, text=_OHI_QZS2)
+    return httpx.Response(404)  # ohi-qzs6.txt missing
+
+
+def test_fetch_qzss_ohi_skips_missing_files(capsys: pytest.CaptureFixture[str]) -> None:
+    with httpx.Client(transport=httpx.MockTransport(_qzss_handler)) as client:
+        labels = fetch_qzss_ohi_labels(_qzss_recipe(), client, rate_limiter=RateLimiter(0.0))
+    assert len(labels) == 1  # only QZS-2 has an OHI file
+    assert labels[0].norad_id == 42738
+    assert labels[0].orbit_class is OrbitClass.IGSO
+    assert labels[0].delta_v is not None  # QZSS labels carry a Δv magnitude
+    assert "ohi-qzs6.txt' not found (404)" in capsys.readouterr().err
+
+
+# --- fetch_noaa_goes_labels: navsum history from the Internet Archive (offline) ---
+
+_GOES_NAME_TO_NORAD = {"GOES-16": 41866}
+
+
+def _navsum(yy_ddd: str) -> str:
+    return (
+        "=============================================================\r\n"
+        "Spacecraft :                                  GOES-16\r\n"
+        "Comments:\r\n"
+        f"Fuel and oxidizer remaining are estimates after the last maneuver on {yy_ddd}.\r\n"
+    )
+
+
+def _noaa_handler(request: httpx.Request) -> httpx.Response:
+    path = request.url.path
+    if path == "/cdx/search/cdx":
+        # The CDX listing: a header row then two content-distinct snapshots.
+        return httpx.Response(200, text='[["timestamp"],["20240115000000"],["20260610000000"]]')
+    if "20240115000000" in path:
+        return httpx.Response(200, text=_navsum("24/015"))
+    if "20260610000000" in path:
+        return httpx.Response(200, text=_navsum("26/159"))
+    if path.endswith("/resources/cemscs/navsum.txt"):  # the live file, repeating the latest
+        return httpx.Response(200, text=_navsum("26/159"))
+    return httpx.Response(404)
+
+
+def test_fetch_noaa_goes_dedups_across_snapshots() -> None:
+    with httpx.Client(transport=httpx.MockTransport(_noaa_handler)) as client:
+        labels = fetch_noaa_goes_labels(
+            client, goes_name_to_norad=_GOES_NAME_TO_NORAD, rate_limiter=RateLimiter(0.0)
+        )
+    # Two distinct maneuver days (24/015, 26/159); the live file repeats 26/159 and is deduped.
+    assert len(labels) == 2
+    assert {label.norad_id for label in labels} == {41866}
+    assert all(label.source == SOURCE_NOAA_GOES for label in labels)
+    days = sorted(label.window_start.date().isoformat() for label in labels)
+    assert days == ["2024-01-15", "2026-06-08"]
