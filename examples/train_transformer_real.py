@@ -7,9 +7,11 @@ end and reproducibly:
    written to the repo, per D2);
 2. slice the labelled objects by the frozen leak-free temporal split;
 3. train the transformer through the shared Lightning harness on a single GPU
-   (``accelerator="auto"``, within the V7 budget), selecting the checkpoint on the val-split recall;
-4. tune the detection threshold on the **val** split through the benchmark and freeze it, with the
-   weights and the train-split normaliser, into the checkpoint bundle;
+   (``accelerator="auto"``, within the V7 budget), selecting the checkpoint on the val-split recall
+   under the chosen class-balance objective;
+4. tune a **per-orbit-class** detection threshold on the **val** split through the benchmark and
+   freeze the gates — plus the scalar fallback — with the weights and the train-split normaliser
+   into the checkpoint bundle;
 5. score the held-out **test** split through the benchmark — era-scoped labels, in-era detections,
    per-type floor — and print the recall / precision per class for the model card.
 
@@ -22,7 +24,10 @@ a GPU. Set ``SPACETRACK_USERNAME`` / ``SPACETRACK_PASSWORD`` and run it from a C
 Without credentials it prints how to set them and exits 0 (it never blocks on a prompt). The number
 of epochs is the ``MANEUVER_DETECT_TRAIN_EPOCHS`` environment variable (default 150). To try the
 focal objective instead of class-weighted BCE, set ``MANEUVER_DETECT_TRANSFORMER_LOSS=focal``. The
-output stays ASCII (the delta-v column prints as ``delta_v_estimate``).
+class-balance of the checkpoint-selection and threshold-tuning objective is
+``MANEUVER_DETECT_SELECTION_OBJECTIVE`` (``pooled`` default, ``macro`` to weight every orbit class
+equally — lifting GEO without trading LEO/MEO away). The output stays ASCII (the delta-v column
+prints as ``delta_v_estimate``).
 """
 
 from __future__ import annotations
@@ -74,6 +79,16 @@ def _has_credentials() -> bool:
     return bool(os.environ.get("SPACETRACK_USERNAME") and os.environ.get("SPACETRACK_PASSWORD"))
 
 
+def _selection_objective() -> str:
+    """The class-balance objective from ``MANEUVER_DETECT_SELECTION_OBJECTIVE`` (default pooled)."""
+    value = os.environ.get("MANEUVER_DETECT_SELECTION_OBJECTIVE", "pooled")
+    if value not in ("pooled", "macro"):
+        raise SystemExit(
+            f"MANEUVER_DETECT_SELECTION_OBJECTIVE must be 'pooled' or 'macro', got {value!r}"
+        )
+    return value
+
+
 def _guide_without_credentials() -> int:
     print("This run reconstructs the real v0.2 dataset from Space-Track and needs credentials.")
     print("Set the two environment variables and re-run on a GPU box:")
@@ -93,13 +108,17 @@ def main() -> int:
     from maneuver_detect.detectors.transformer import TransformerDetector
     from maneuver_detect.models.checkpoint import save_bundle
     from maneuver_detect.models.datamodule import objects_from_labelled_dataset
-    from maneuver_detect.models.evaluate import score_on_temporal_split, tune_threshold_on_val
+    from maneuver_detect.models.evaluate import (
+        score_on_temporal_split,
+        tune_thresholds_per_class_on_val,
+    )
     from maneuver_detect.models.train import ValBenchmark, train_transformer
 
     epochs = int(os.environ.get("MANEUVER_DETECT_TRAIN_EPOCHS", str(_DEFAULT_EPOCHS)))
     loss: LossName = (
         "focal" if os.environ.get("MANEUVER_DETECT_TRANSFORMER_LOSS") == "focal" else "bce"
     )
+    objective = _selection_objective()
     labels_by_norad = _load_labels_by_norad(_DATA / "labels.json")
     split = TemporalSplit.from_json((_DATA / "splits.json").read_text())
 
@@ -112,8 +131,13 @@ def main() -> int:
         f"val={len(sliced['val'])}  test={len(sliced['test'])}"
     )
 
-    val_spec = ValBenchmark(series_by_norad=series_by_norad, labels=dataset.labels, split=split)
-    print(f"Training the transformer for up to {epochs} epochs on a single GPU (loss={loss})...")
+    val_spec = ValBenchmark(
+        series_by_norad=series_by_norad, labels=dataset.labels, split=split, objective=objective
+    )
+    print(
+        f"Training the transformer for up to {epochs} epochs on a single GPU "
+        f"(loss={loss}, objective={objective})..."
+    )
     started = time.time()
     bundle = train_transformer(
         sliced["train"],
@@ -130,16 +154,22 @@ def main() -> int:
     )
     gpu_hours = (time.time() - started) / 3600.0
 
-    # Tune the decision threshold on the val split (the weights are fixed; the threshold is a
-    # selection), and freeze the best one into the bundle before scoring test.
-    tuning = tune_threshold_on_val(
+    # Tune a per-orbit-class decision threshold on the val split (the weights are fixed; the
+    # threshold is a selection), and freeze the per-class gates plus a scalar fallback into the
+    # bundle before scoring test. GEO can take a lower gate than LEO/MEO.
+    tuning = tune_thresholds_per_class_on_val(
         lambda t: TransformerDetector(bundle, threshold=t),
         series_by_norad,
         dataset.labels,
         split,
+        objective=objective,
     )
-    bundle = replace(bundle, threshold=tuning.threshold)
-    print(f"tuned threshold -> {tuning.threshold:g}  (val recall {tuning.recall:.2f})")
+    bundle = replace(bundle, threshold=tuning.fallback, class_thresholds=tuning.thresholds)
+    gates = ", ".join(f"{cls} {gate:g}" for cls, gate in sorted(tuning.thresholds.items()))
+    print(
+        f"tuned thresholds -> fallback {tuning.fallback:g} (val recall {tuning.recall:.2f})  "
+        f"per-class: {gates or '(none)'}"
+    )
 
     # Score the held-out test split through the benchmark (the model-card / leaderboard numbers) and
     # record the full report into the checkpoint, so the generated model card carries the per-class
